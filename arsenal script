@@ -1,0 +1,1563 @@
+-- milk arsenal v3
+-- asks which executor you use.
+--   compat = xeno / solara. plain roblox gui overlay, no hooks, no drawing library.
+--   full   = high unc executors. drawing library overlay, better arrows, silent aim hooks.
+
+local cr = cloneref or function(x) return x end
+local Players = cr(game:GetService("Players"))
+local RunService = cr(game:GetService("RunService"))
+local UserInputService = cr(game:GetService("UserInputService"))
+local TweenService = cr(game:GetService("TweenService"))
+local Workspace = cr(game:GetService("Workspace"))
+local Lighting = cr(game:GetService("Lighting"))
+local TeleportService = cr(game:GetService("TeleportService"))
+local HttpService = cr(game:GetService("HttpService"))
+local VirtualUser = cr(game:GetService("VirtualUser"))
+local CoreGui = cr(game:GetService("CoreGui"))
+local RealWorkspace = game:GetService("Workspace")
+
+local env = (getgenv and getgenv()) or _G
+if env.MilkCleanup then pcall(env.MilkCleanup) end
+
+local LocalPlayer = Players.LocalPlayer
+local ROOT = "MilkArsenal"
+local hasFS = type(writefile) == "function" and type(readfile) == "function"
+	and type(isfile) == "function" and type(makefolder) == "function"
+
+local cfg = {
+	ESP = true,
+	Names = true,
+	Tracers = true,
+	Skeleton = true,
+	Arrows = true,
+	Crosshair = false,
+	ShowFOV = true,
+	ArrowRadius = 150,
+	ArrowMaxDist = 500,
+	SkeletonThickness = 1.5,
+
+	Aimbot = true,
+	AimMode = "Hold",
+	Sticky = true,
+	TeamCheck = true,
+	WallCheck = true,
+	FOV = 250,
+	AimSpeed = 18,
+	Prediction = 0.05,
+	AimPart = "Head",
+	AimKey = Enum.UserInputType.MouseButton2,
+
+	SilentAim = false,
+	SilentFOV = 200,
+	HitChance = 100,
+
+	Trigger = false,
+	TriggerDelay = 0.05,
+
+	Hitbox = false,
+	HitboxPart = "Head",
+	HitboxSize = 6,
+	HitboxAlpha = 0.6,
+
+	Speed = false,
+	SpeedValue = 32,
+	Fly = false,
+	FlySpeed = 60,
+	Noclip = false,
+	InfJump = false,
+
+	CamFOVOn = false,
+	CamFOV = 90,
+	Fullbright = false,
+	AntiAFK = true,
+
+	EnemyColor = Color3.fromRGB(255, 70, 70),
+}
+
+local theme = {
+	bg = Color3.fromRGB(20, 20, 24),
+	panel = Color3.fromRGB(30, 30, 36),
+	item = Color3.fromRGB(40, 40, 48),
+	accent = Color3.fromRGB(110, 150, 255),
+	text = Color3.fromRGB(238, 238, 244),
+	sub = Color3.fromRGB(150, 150, 165),
+	off = Color3.fromRGB(70, 70, 82),
+	good = Color3.fromRGB(110, 225, 160),
+	bad = Color3.fromRGB(235, 100, 110),
+}
+
+local connections = {}
+local objects = {}
+local mode = nil
+local backend = nil
+local fovCircle, silentCircle
+local cleanup
+
+local function track(conn)
+	table.insert(connections, conn)
+	return conn
+end
+
+local function corner(parent, radius)
+	local c = Instance.new("UICorner")
+	c.CornerRadius = UDim.new(0, radius)
+	c.Parent = parent
+end
+
+------------------------------------------------------------------------
+-- gui roots
+------------------------------------------------------------------------
+local guiParent = (gethui and gethui()) or CoreGui
+local gui = Instance.new("ScreenGui")
+gui.Name = "MilkArsenal"
+gui.ResetOnSpawn = false
+gui.IgnoreGuiInset = true
+gui.DisplayOrder = 999
+gui.Parent = guiParent
+
+local overlay = Instance.new("Frame")
+overlay.Name = "Overlay"
+overlay.Size = UDim2.fromScale(1, 1)
+overlay.BackgroundTransparency = 1
+overlay.BorderSizePixel = 0
+overlay.Active = false
+overlay.Parent = gui
+
+local dot = Instance.new("Frame")
+dot.Size = UDim2.fromOffset(4, 4)
+dot.AnchorPoint = Vector2.new(0.5, 0.5)
+dot.Position = UDim2.fromScale(0.5, 0.5)
+dot.BackgroundColor3 = Color3.new(1, 1, 1)
+dot.BorderSizePixel = 0
+dot.Visible = false
+dot.Parent = overlay
+corner(dot, 2)
+
+local hud = Instance.new("TextLabel")
+hud.Size = UDim2.fromOffset(300, 20)
+hud.AnchorPoint = Vector2.new(0.5, 0)
+hud.Position = UDim2.new(0.5, 0, 0, 14)
+hud.BackgroundTransparency = 1
+hud.Font = Enum.Font.GothamBold
+hud.TextSize = 13
+hud.TextColor3 = Color3.new(1, 1, 1)
+hud.TextStrokeTransparency = 0.5
+hud.Text = ""
+hud.Parent = overlay
+
+local statusLabel -- set when the menu exists
+local function setStatus(text, color)
+	if statusLabel then
+		statusLabel.Text = text
+		statusLabel.TextColor3 = color or theme.sub
+	end
+end
+
+------------------------------------------------------------------------
+-- overlay backends
+-- both expose: newLine, newArrow, newCircle. every object has set/hide/destroy
+------------------------------------------------------------------------
+local function makeGuiBackend()
+	local B = {}
+
+	function B.newLine()
+		local f = Instance.new("Frame")
+		f.AnchorPoint = Vector2.new(0.5, 0.5)
+		f.BorderSizePixel = 0
+		f.Visible = false
+		f.Parent = overlay
+		local o = {}
+		function o.set(a, b, color, thick)
+			local d = b - a
+			f.Size = UDim2.fromOffset(d.Magnitude, thick)
+			f.Position = UDim2.fromOffset((a.X + b.X) / 2, (a.Y + b.Y) / 2)
+			f.Rotation = math.deg(math.atan2(d.Y, d.X))
+			f.BackgroundColor3 = color
+			f.Visible = true
+		end
+		function o.hide() f.Visible = false end
+		function o.destroy() pcall(function() f:Destroy() end) end
+		return o
+	end
+
+	function B.newArrow()
+		local c = Instance.new("Frame")
+		c.Size = UDim2.fromOffset(30, 14)
+		c.AnchorPoint = Vector2.new(0.5, 0.5)
+		c.BackgroundTransparency = 1
+		c.Visible = false
+		c.Parent = overlay
+
+		local bar = Instance.new("Frame")
+		bar.Size = UDim2.fromOffset(18, 4)
+		bar.Position = UDim2.new(0, 0, 0.5, -2)
+		bar.BorderSizePixel = 0
+		bar.Parent = c
+
+		local head = Instance.new("Frame")
+		head.Size = UDim2.fromOffset(10, 10)
+		head.AnchorPoint = Vector2.new(0.5, 0.5)
+		head.Position = UDim2.new(0, 22, 0.5, 0)
+		head.Rotation = 45
+		head.BorderSizePixel = 0
+		head.Parent = c
+
+		local lbl = Instance.new("TextLabel")
+		lbl.Size = UDim2.fromOffset(50, 12)
+		lbl.AnchorPoint = Vector2.new(0.5, 0)
+		lbl.BackgroundTransparency = 1
+		lbl.Font = Enum.Font.GothamBold
+		lbl.TextSize = 11
+		lbl.TextColor3 = Color3.new(1, 1, 1)
+		lbl.TextStrokeTransparency = 0.4
+		lbl.Visible = false
+		lbl.Parent = overlay
+
+		local o = {}
+		function o.set(a)
+			c.Position = UDim2.fromOffset(a.pos.X, a.pos.Y)
+			c.Rotation = math.deg(math.atan2(a.dir.Y, a.dir.X))
+			bar.BackgroundColor3 = a.color
+			head.BackgroundColor3 = a.color
+			c.Visible = true
+			lbl.Position = UDim2.fromOffset(a.pos.X, a.pos.Y + 12)
+			lbl.Text = a.text
+			lbl.Visible = true
+		end
+		function o.hide()
+			c.Visible = false
+			lbl.Visible = false
+		end
+		function o.destroy()
+			pcall(function() c:Destroy() end)
+			pcall(function() lbl:Destroy() end)
+		end
+		return o
+	end
+
+	function B.newCircle()
+		local f = Instance.new("Frame")
+		f.AnchorPoint = Vector2.new(0.5, 0.5)
+		f.BackgroundTransparency = 1
+		f.BorderSizePixel = 0
+		f.Visible = false
+		f.Parent = overlay
+		corner(f, 9999)
+		local s = Instance.new("UIStroke")
+		s.Thickness = 1
+		s.Parent = f
+		local o = {}
+		function o.set(pos, radius, color)
+			f.Position = UDim2.fromOffset(pos.X, pos.Y)
+			f.Size = UDim2.fromOffset(radius * 2, radius * 2)
+			s.Color = color
+			f.Visible = true
+		end
+		function o.hide() f.Visible = false end
+		function o.destroy() pcall(function() f:Destroy() end) end
+		return o
+	end
+
+	return B
+end
+
+local function makeDrawBackend()
+	local B = {}
+
+	function B.newLine()
+		local l = Drawing.new("Line")
+		l.Visible = false
+		l.Transparency = 1
+		local o = {}
+		function o.set(a, b, color, thick)
+			l.From = a
+			l.To = b
+			l.Color = color
+			l.Thickness = thick
+			l.Visible = true
+		end
+		function o.hide() l.Visible = false end
+		function o.destroy() pcall(function() l:Remove() end) end
+		return o
+	end
+
+	-- filled triangle + black outline + distance text. size and fade come from the caller
+	function B.newArrow()
+		local fill = Drawing.new("Triangle")
+		fill.Filled = true
+		fill.Visible = false
+		fill.Transparency = 1
+		local outline = Drawing.new("Triangle")
+		outline.Filled = false
+		outline.Thickness = 1.5
+		outline.Color = Color3.new(0, 0, 0)
+		outline.Visible = false
+		outline.Transparency = 1
+		local txt = Drawing.new("Text")
+		txt.Size = 13
+		txt.Center = true
+		txt.Outline = true
+		txt.Color = Color3.new(1, 1, 1)
+		txt.Visible = false
+		txt.Transparency = 1
+
+		local o = {}
+		function o.set(a)
+			local dir, size = a.dir, a.size
+			local perp = Vector2.new(-dir.Y, dir.X)
+			local tip = a.pos + dir * size
+			local baseC = a.pos - dir * size * 0.35
+			local left = baseC + perp * size * 0.75
+			local right = baseC - perp * size * 0.75
+			fill.PointA, fill.PointB, fill.PointC = tip, left, right
+			outline.PointA, outline.PointB, outline.PointC = tip, left, right
+			fill.Color = a.color
+			fill.Transparency = a.alpha
+			outline.Transparency = a.alpha
+			txt.Transparency = a.alpha
+			txt.Position = a.pos - dir * (size * 1.5) - Vector2.new(0, 6)
+			txt.Text = a.text
+			fill.Visible, outline.Visible, txt.Visible = true, true, true
+		end
+		function o.hide()
+			fill.Visible, outline.Visible, txt.Visible = false, false, false
+		end
+		function o.destroy()
+			pcall(function() fill:Remove() end)
+			pcall(function() outline:Remove() end)
+			pcall(function() txt:Remove() end)
+		end
+		return o
+	end
+
+	function B.newCircle()
+		local c = Drawing.new("Circle")
+		c.NumSides = 64
+		c.Thickness = 1
+		c.Filled = false
+		c.Transparency = 1
+		c.Visible = false
+		local o = {}
+		function o.set(pos, radius, color)
+			c.Position = pos
+			c.Radius = radius
+			c.Color = color
+			c.Visible = true
+		end
+		function o.hide() c.Visible = false end
+		function o.destroy() pcall(function() c:Remove() end) end
+		return o
+	end
+
+	return B
+end
+
+------------------------------------------------------------------------
+-- helpers
+------------------------------------------------------------------------
+local function isAlive(char)
+	if not char then return false end
+	local hum = char:FindFirstChildOfClass("Humanoid")
+	return hum ~= nil and hum.Health > 0
+end
+
+local function isEnemy(plr)
+	if plr == LocalPlayer then return false end
+	if cfg.TeamCheck and plr.Team ~= nil and plr.Team == LocalPlayer.Team then
+		return false
+	end
+	return true
+end
+
+local rayParams = RaycastParams.new()
+rayParams.FilterType = Enum.RaycastFilterType.Exclude
+
+local function setIgnore(camera)
+	local list = { camera }
+	if LocalPlayer.Character then table.insert(list, LocalPlayer.Character) end
+	rayParams.FilterDescendantsInstances = list
+end
+
+local function canSee(camera, part, char)
+	setIgnore(camera)
+	local origin = camera.CFrame.Position
+	local hit = Workspace:Raycast(origin, part.Position - origin, rayParams)
+	return hit == nil or hit.Instance:IsDescendantOf(char)
+end
+
+------------------------------------------------------------------------
+-- per player objects
+------------------------------------------------------------------------
+local R6_BONES = {
+	{ "Head", Vector3.zero, "Torso", Vector3.new(0, 1, 0) },
+	{ "Torso", Vector3.new(0, 1, 0), "Torso", Vector3.new(0, -1, 0) },
+	{ "Torso", Vector3.new(0, 1, 0), "Left Arm", Vector3.new(0, 1, 0) },
+	{ "Left Arm", Vector3.new(0, 1, 0), "Left Arm", Vector3.new(0, -1, 0) },
+	{ "Torso", Vector3.new(0, 1, 0), "Right Arm", Vector3.new(0, 1, 0) },
+	{ "Right Arm", Vector3.new(0, 1, 0), "Right Arm", Vector3.new(0, -1, 0) },
+	{ "Torso", Vector3.new(0, -1, 0), "Left Leg", Vector3.new(0, 1, 0) },
+	{ "Left Leg", Vector3.new(0, 1, 0), "Left Leg", Vector3.new(0, -1, 0) },
+	{ "Torso", Vector3.new(0, -1, 0), "Right Leg", Vector3.new(0, 1, 0) },
+	{ "Right Leg", Vector3.new(0, 1, 0), "Right Leg", Vector3.new(0, -1, 0) },
+}
+
+local function pairBones(list)
+	local out = {}
+	for _, p in ipairs(list) do
+		table.insert(out, { p[1], Vector3.zero, p[2], Vector3.zero })
+	end
+	return out
+end
+
+local R15_BONES = pairBones({
+	{ "Head", "UpperTorso" }, { "UpperTorso", "LowerTorso" },
+	{ "UpperTorso", "LeftUpperArm" }, { "LeftUpperArm", "LeftLowerArm" }, { "LeftLowerArm", "LeftHand" },
+	{ "UpperTorso", "RightUpperArm" }, { "RightUpperArm", "RightLowerArm" }, { "RightLowerArm", "RightHand" },
+	{ "LowerTorso", "LeftUpperLeg" }, { "LeftUpperLeg", "LeftLowerLeg" }, { "LeftLowerLeg", "LeftFoot" },
+	{ "LowerTorso", "RightUpperLeg" }, { "RightUpperLeg", "RightLowerLeg" }, { "RightLowerLeg", "RightFoot" },
+})
+
+local function buildOverlay(o)
+	o.tracer = backend.newLine()
+	o.arrow = backend.newArrow()
+	o.bones = {}
+end
+
+local function destroyOverlay(o)
+	if o.tracer then o.tracer.destroy() end
+	if o.arrow then o.arrow.destroy() end
+	for _, b in ipairs(o.bones or {}) do b.destroy() end
+	o.tracer, o.arrow, o.bones = nil, nil, {}
+end
+
+local function addPlayer(plr)
+	if plr == LocalPlayer or objects[plr] then return end
+
+	local hl = Instance.new("Highlight")
+	hl.FillColor = cfg.EnemyColor
+	hl.OutlineColor = Color3.new(1, 1, 1)
+	hl.FillTransparency = 0.6
+	hl.OutlineTransparency = 0
+	hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+	hl.Enabled = false
+	hl.Parent = gui
+
+	local bb = Instance.new("BillboardGui")
+	bb.Size = UDim2.fromOffset(160, 32)
+	bb.StudsOffset = Vector3.new(0, 2.5, 0)
+	bb.AlwaysOnTop = true
+	bb.Enabled = false
+	bb.Parent = gui
+
+	local label = Instance.new("TextLabel")
+	label.Size = UDim2.fromScale(1, 1)
+	label.BackgroundTransparency = 1
+	label.TextColor3 = Color3.new(1, 1, 1)
+	label.TextStrokeTransparency = 0
+	label.Font = Enum.Font.GothamBold
+	label.TextSize = 13
+	label.Text = ""
+	label.Parent = bb
+
+	local o = { hl = hl, bb = bb, label = label, bones = {} }
+	objects[plr] = o
+	if backend then buildOverlay(o) end
+end
+
+local function removePlayer(plr)
+	local o = objects[plr]
+	if not o then return end
+	pcall(function() o.hl:Destroy() end)
+	pcall(function() o.bb:Destroy() end)
+	destroyOverlay(o)
+	objects[plr] = nil
+end
+
+for _, plr in ipairs(Players:GetPlayers()) do addPlayer(plr) end
+track(Players.PlayerAdded:Connect(addPlayer))
+track(Players.PlayerRemoving:Connect(removePlayer))
+
+local function hideOverlay(o)
+	if o.tracer then o.tracer.hide() end
+	if o.arrow then o.arrow.hide() end
+	for _, b in ipairs(o.bones) do b.hide() end
+end
+
+local function drawSkeleton(o, char, camera)
+	local hum = char:FindFirstChildOfClass("Humanoid")
+	local defs = (hum and hum.RigType == Enum.HumanoidRigType.R15) and R15_BONES or R6_BONES
+	while #o.bones < #defs do
+		table.insert(o.bones, backend.newLine())
+	end
+	for i, def in ipairs(defs) do
+		local line = o.bones[i]
+		local a = char:FindFirstChild(def[1])
+		local b = char:FindFirstChild(def[3])
+		local drawn = false
+		if a and b and a:IsA("BasePart") and b:IsA("BasePart") then
+			local sa, onA = camera:WorldToViewportPoint((a.CFrame * def[2]))
+			local sb, onB = camera:WorldToViewportPoint((b.CFrame * def[4]))
+			if onA and onB and sa.Z > 0 and sb.Z > 0 then
+				line.set(Vector2.new(sa.X, sa.Y), Vector2.new(sb.X, sb.Y), Color3.new(1, 1, 1), cfg.SkeletonThickness)
+				drawn = true
+			end
+		end
+		if not drawn then line.hide() end
+	end
+	for i = #defs + 1, #o.bones do o.bones[i].hide() end
+end
+
+local function drawArrow(o, camera, rootPos, dist, hpFrac, viewport)
+	local sp, onScreen = camera:WorldToViewportPoint(rootPos)
+	if onScreen and sp.Z > 0 then
+		o.arrow.hide()
+		return
+	end
+	local rel = camera.CFrame:PointToObjectSpace(rootPos)
+	local d = Vector2.new(rel.X, rel.Z)
+	if d.Magnitude < 0.001 then
+		o.arrow.hide()
+		return
+	end
+	local dir = d.Unit
+	local center = viewport / 2
+	local text = string.format("%dm", dist)
+
+	if mode == "full" then
+		local rx = math.min(cfg.ArrowRadius * 1.3, viewport.X * 0.5 - 40)
+		local ry = math.min(cfg.ArrowRadius, viewport.Y * 0.5 - 40)
+		local pos = center + Vector2.new(dir.X * rx, dir.Y * ry)
+		local size = math.clamp(24 - dist / 40, 12, 24)
+		if dist < 40 then
+			size = size * (1 + 0.12 * math.sin(os.clock() * 9))
+		end
+		o.arrow.set({
+			pos = pos, dir = dir, size = size, text = text,
+			color = Color3.fromHSV(0.33 * math.clamp(hpFrac, 0, 1), 0.85, 1),
+			alpha = math.clamp(1 - dist / (cfg.ArrowMaxDist * 1.2), 0.4, 1),
+		})
+	else
+		local r = cfg.ArrowRadius
+		local pos = center + dir * r
+		o.arrow.set({ pos = pos, dir = dir, size = 14, text = text, color = cfg.EnemyColor, alpha = 1 })
+	end
+end
+
+------------------------------------------------------------------------
+-- targeting
+------------------------------------------------------------------------
+local lockedPlr = nil
+
+local function partFor(char)
+	return char:FindFirstChild(cfg.AimPart) or char:FindFirstChild("HumanoidRootPart")
+end
+
+local function evaluate(plr, camera, center, fov)
+	if not isEnemy(plr) then return nil end
+	local char = plr.Character
+	if not isAlive(char) then return nil end
+	local part = partFor(char)
+	if not part then return nil end
+	local pos = part.Position + part.AssemblyLinearVelocity * cfg.Prediction
+	local screen, onScreen = camera:WorldToViewportPoint(pos)
+	if not (onScreen and screen.Z > 0) then return nil end
+	local dist = (Vector2.new(screen.X, screen.Y) - center).Magnitude
+	if dist > fov then return nil end
+	if cfg.WallCheck and not canSee(camera, part, char) then return nil end
+	return part, dist, pos
+end
+
+local function findTarget(camera, center, fov)
+	local bestPlr, bestPart, bestPos, bestDist
+	for _, plr in ipairs(Players:GetPlayers()) do
+		local part, dist, pos = evaluate(plr, camera, center, fov)
+		if part and (not bestDist or dist < bestDist) then
+			bestPlr, bestPart, bestPos, bestDist = plr, part, pos, dist
+		end
+	end
+	return bestPlr, bestPart, bestPos
+end
+
+local function acquire(camera, center)
+	if cfg.Sticky and lockedPlr then
+		local part, _, pos = evaluate(lockedPlr, camera, center, cfg.FOV * 1.5)
+		if part then return lockedPlr, part, pos end
+	end
+	return findTarget(camera, center, cfg.FOV)
+end
+
+------------------------------------------------------------------------
+-- silent aim (full mode only: needs hooks)
+------------------------------------------------------------------------
+local silent = env.MilkSilent
+if not silent then
+	silent = { active = false, pos = nil, part = nil, chance = 100, installed = false }
+	env.MilkSilent = silent
+end
+silent.active = false
+silent.ws = RealWorkspace
+silent.mouse = LocalPlayer:GetMouse()
+
+local function installSilent()
+	if silent.installed then return true end
+	if not (hookmetamethod and getnamecallmethod) then return false end
+	local checkcaller = checkcaller or function() return false end
+	local wrap = newcclosure or function(f) return f end
+
+	local okNamecall = pcall(function()
+		local oldNamecall
+		oldNamecall = hookmetamethod(game, "__namecall", wrap(function(self, ...)
+			local method = getnamecallmethod()
+			if silent.active and silent.pos and self == silent.ws and not checkcaller() then
+				if method == "FindPartOnRayWithIgnoreList" or method == "FindPartOnRay"
+					or method == "FindPartOnRayWithWhitelist" then
+					local args = table.pack(...)
+					local ray = args[1]
+					if typeof(ray) == "Ray" and math.random(1, 100) <= silent.chance then
+						local origin = ray.Origin
+						local length = math.max(ray.Direction.Magnitude, (silent.pos - origin).Magnitude + 5)
+						args[1] = Ray.new(origin, (silent.pos - origin).Unit * length)
+						return oldNamecall(self, table.unpack(args, 1, args.n))
+					end
+				elseif method == "Raycast" then
+					local args = table.pack(...)
+					local origin, direction = args[1], args[2]
+					if typeof(origin) == "Vector3" and typeof(direction) == "Vector3"
+						and math.random(1, 100) <= silent.chance then
+						local length = math.max(direction.Magnitude, (silent.pos - origin).Magnitude + 5)
+						args[2] = (silent.pos - origin).Unit * length
+						return oldNamecall(self, table.unpack(args, 1, args.n))
+					end
+				end
+			end
+			return oldNamecall(self, ...)
+		end))
+	end)
+	if not okNamecall then return false end
+
+	pcall(function()
+		local oldIndex
+		oldIndex = hookmetamethod(game, "__index", wrap(function(self, key)
+			if silent.active and silent.pos and self == silent.mouse
+				and (key == "Hit" or key == "Target") and not checkcaller() then
+				if math.random(1, 100) <= silent.chance then
+					if key == "Hit" then return CFrame.new(silent.pos) end
+					return silent.part
+				end
+			end
+			return oldIndex(self, key)
+		end))
+	end)
+
+	silent.installed = true
+	return true
+end
+
+------------------------------------------------------------------------
+-- hitbox expander
+------------------------------------------------------------------------
+local hitboxOrig = {}
+
+local function restoreHitbox(part)
+	local s = hitboxOrig[part]
+	if s then
+		pcall(function()
+			part.Size = s[1]
+			part.Transparency = s[2]
+			part.CanCollide = s[3]
+		end)
+		hitboxOrig[part] = nil
+	end
+end
+
+local function hitboxPartOf(char)
+	local k = cfg.HitboxPart
+	if k == "Head" then return char:FindFirstChild("Head") end
+	if k == "Torso" then return char:FindFirstChild("UpperTorso") or char:FindFirstChild("Torso") end
+	return char:FindFirstChild("HumanoidRootPart")
+end
+
+local function updateHitboxes()
+	local active = {}
+	if cfg.Hitbox then
+		for _, plr in ipairs(Players:GetPlayers()) do
+			local char = plr.Character
+			if isEnemy(plr) and isAlive(char) then
+				local part = hitboxPartOf(char)
+				if part then
+					active[part] = true
+					if not hitboxOrig[part] then
+						hitboxOrig[part] = { part.Size, part.Transparency, part.CanCollide }
+					end
+					local s = cfg.HitboxSize
+					part.Size = Vector3.new(s, s, s)
+					part.Transparency = cfg.HitboxAlpha
+					part.CanCollide = false
+				end
+			end
+		end
+	end
+	for part in pairs(hitboxOrig) do
+		if not active[part] then restoreHitbox(part) end
+	end
+end
+
+------------------------------------------------------------------------
+-- misc helpers
+------------------------------------------------------------------------
+local savedLighting
+local function applyFullbright()
+	Lighting.Brightness = 2
+	Lighting.ClockTime = 14
+	Lighting.FogEnd = 1e6
+	Lighting.GlobalShadows = false
+	Lighting.Ambient = Color3.fromRGB(200, 200, 200)
+end
+
+local function setFullbright(on)
+	if on then
+		if not savedLighting then
+			savedLighting = {
+				Brightness = Lighting.Brightness, ClockTime = Lighting.ClockTime, FogEnd = Lighting.FogEnd,
+				GlobalShadows = Lighting.GlobalShadows, Ambient = Lighting.Ambient,
+			}
+		end
+		applyFullbright()
+	elseif savedLighting then
+		for k, v in pairs(savedLighting) do pcall(function() Lighting[k] = v end) end
+		savedLighting = nil
+	end
+end
+
+local origFOV = Workspace.CurrentCamera and Workspace.CurrentCamera.FieldOfView or 70
+
+local function serverHop()
+	setStatus("finding server...")
+	task.spawn(function()
+		local url = string.format(
+			"https://games.roblox.com/v1/games/%d/servers/Public?sortOrder=Asc&limit=100", game.PlaceId)
+		local body
+		local ok, res = pcall(function() return game:HttpGet(url) end)
+		if ok and type(res) == "string" then
+			body = res
+		elseif request then
+			local ok2, r = pcall(request, { Url = url, Method = "GET" })
+			if ok2 and r and r.Success then body = r.Body end
+		end
+		if not body then
+			setStatus("hop failed: no response", theme.bad)
+			return
+		end
+		local okDecode, data = pcall(function() return HttpService:JSONDecode(body) end)
+		if not okDecode or type(data) ~= "table" or type(data.data) ~= "table" then
+			setStatus("hop failed: bad data", theme.bad)
+			return
+		end
+		local options = {}
+		for _, s in ipairs(data.data) do
+			if s.id ~= game.JobId and s.playing and s.maxPlayers and s.playing < s.maxPlayers then
+				table.insert(options, s.id)
+			end
+		end
+		if #options == 0 then
+			setStatus("no servers found", theme.bad)
+			return
+		end
+		pcall(function()
+			TeleportService:TeleportToPlaceInstance(game.PlaceId, options[math.random(1, #options)], LocalPlayer)
+		end)
+	end)
+end
+
+------------------------------------------------------------------------
+-- main render loop
+------------------------------------------------------------------------
+local wasDown = false
+local aimToggled = false
+
+track(RunService.RenderStepped:Connect(function(dt)
+	local camera = Workspace.CurrentCamera
+	if not camera or not backend then return end
+	local viewport = camera.ViewportSize
+	local mouse = UserInputService:GetMouseLocation()
+	local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+
+	if cfg.ShowFOV and cfg.Aimbot then
+		fovCircle.set(mouse, cfg.FOV, Color3.new(1, 1, 1))
+	else
+		fovCircle.hide()
+	end
+	if cfg.ShowFOV and cfg.SilentAim then
+		silentCircle.set(mouse, cfg.SilentFOV, Color3.fromRGB(90, 200, 255))
+	else
+		silentCircle.hide()
+	end
+
+	dot.Position = UDim2.fromOffset(viewport.X / 2, viewport.Y / 2)
+	dot.Visible = cfg.Crosshair
+
+	if cfg.CamFOVOn then camera.FieldOfView = cfg.CamFOV end
+	if cfg.Fullbright then applyFullbright() end
+
+	for plr, o in pairs(objects) do
+		local char = plr.Character
+		local show = cfg.ESP and isEnemy(plr) and isAlive(char)
+		local root = show and char:FindFirstChild("HumanoidRootPart")
+		local head = show and char:FindFirstChild("Head")
+
+		if show and root and head then
+			local hum = char:FindFirstChildOfClass("Humanoid")
+			local dist = myRoot and (myRoot.Position - root.Position).Magnitude or 0
+
+			o.hl.Adornee = char
+			o.hl.Enabled = true
+			o.bb.Adornee = head
+			o.bb.Enabled = cfg.Names
+			o.label.Text = string.format("%s | %d hp | %dm", plr.DisplayName, math.floor(hum.Health), math.floor(dist))
+
+			if cfg.Tracers then
+				local s, on = camera:WorldToViewportPoint(root.Position)
+				if on and s.Z > 0 then
+					o.tracer.set(Vector2.new(viewport.X / 2, viewport.Y), Vector2.new(s.X, s.Y), cfg.EnemyColor, 1.5)
+				else
+					o.tracer.hide()
+				end
+			else
+				o.tracer.hide()
+			end
+
+			if cfg.Skeleton then
+				drawSkeleton(o, char, camera)
+			else
+				for _, b in ipairs(o.bones) do b.hide() end
+			end
+
+			if cfg.Arrows and dist <= cfg.ArrowMaxDist then
+				drawArrow(o, camera, root.Position, math.floor(dist), hum.Health / math.max(hum.MaxHealth, 1), viewport)
+			else
+				o.arrow.hide()
+			end
+		else
+			o.hl.Enabled = false
+			o.bb.Enabled = false
+			hideOverlay(o)
+		end
+	end
+
+	-- aimbot
+	local down = UserInputService:IsMouseButtonPressed(cfg.AimKey)
+	if down and not wasDown then aimToggled = not aimToggled end
+	wasDown = down
+
+	local wantAim = cfg.Aimbot and (
+		(cfg.AimMode == "Hold" and down)
+		or (cfg.AimMode == "Toggle" and aimToggled)
+		or cfg.AimMode == "Always"
+	)
+	if wantAim then
+		local plr, _, pos = acquire(camera, mouse)
+		lockedPlr = plr
+		if plr and pos then
+			local alpha = 1 - math.exp(-cfg.AimSpeed * dt)
+			camera.CFrame = camera.CFrame:Lerp(CFrame.lookAt(camera.CFrame.Position, pos), alpha)
+			hud.Text = "locked: " .. plr.DisplayName
+		else
+			hud.Text = "aim: searching"
+		end
+	else
+		lockedPlr = nil
+		hud.Text = cfg.Aimbot and ("aim: " .. string.lower(cfg.AimMode)) or ""
+	end
+
+	-- silent aim target
+	if cfg.SilentAim and silent.installed then
+		local _, sPart, sPos = findTarget(camera, mouse, cfg.SilentFOV)
+		silent.part = sPart
+		silent.pos = sPos
+		silent.chance = cfg.HitChance
+		silent.active = sPart ~= nil
+	else
+		silent.active = false
+	end
+end))
+
+-- movement, triggerbot, hitboxes
+local flying = false
+local lastClick = 0
+
+local function clickMouse()
+	if mouse1click then
+		pcall(mouse1click)
+	elseif mouse1press and mouse1release then
+		pcall(mouse1press)
+		task.delay(0.02, function() pcall(mouse1release) end)
+	end
+end
+
+track(RunService.Heartbeat:Connect(function()
+	local camera = Workspace.CurrentCamera
+	local char = LocalPlayer.Character
+	local hum = char and char:FindFirstChildOfClass("Humanoid")
+	local root = char and char:FindFirstChild("HumanoidRootPart")
+
+	updateHitboxes()
+
+	if cfg.Noclip and char then
+		for _, part in ipairs(char:GetDescendants()) do
+			if part:IsA("BasePart") then part.CanCollide = false end
+		end
+	end
+
+	if hum and root and hum.Health > 0 then
+		if cfg.Fly and camera then
+			flying = true
+			hum.PlatformStand = true
+			local dir = Vector3.zero
+			if not UserInputService:GetFocusedTextBox() then
+				if UserInputService:IsKeyDown(Enum.KeyCode.W) then dir += camera.CFrame.LookVector end
+				if UserInputService:IsKeyDown(Enum.KeyCode.S) then dir -= camera.CFrame.LookVector end
+				if UserInputService:IsKeyDown(Enum.KeyCode.D) then dir += camera.CFrame.RightVector end
+				if UserInputService:IsKeyDown(Enum.KeyCode.A) then dir -= camera.CFrame.RightVector end
+				if UserInputService:IsKeyDown(Enum.KeyCode.Space) then dir += Vector3.yAxis end
+				if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then dir -= Vector3.yAxis end
+			end
+			root.AssemblyLinearVelocity = dir.Magnitude > 0 and dir.Unit * cfg.FlySpeed or Vector3.zero
+		else
+			if flying then
+				flying = false
+				hum.PlatformStand = false
+			end
+			if cfg.Speed and hum.MoveDirection.Magnitude > 0.1 then
+				local move = hum.MoveDirection
+				local vel = root.AssemblyLinearVelocity
+				root.AssemblyLinearVelocity = Vector3.new(move.X * cfg.SpeedValue, vel.Y, move.Z * cfg.SpeedValue)
+			end
+		end
+	end
+
+	if cfg.Trigger and camera and os.clock() - lastClick >= math.max(cfg.TriggerDelay, 0.03) then
+		local viewport = camera.ViewportSize
+		local ray = camera:ViewportPointToRay(viewport.X / 2, viewport.Y / 2)
+		setIgnore(camera)
+		local hit = Workspace:Raycast(ray.Origin, ray.Direction * 1000, rayParams)
+		if hit then
+			for _, plr in ipairs(Players:GetPlayers()) do
+				local pc = plr.Character
+				if isEnemy(plr) and isAlive(pc) and hit.Instance:IsDescendantOf(pc) then
+					lastClick = os.clock()
+					clickMouse()
+					break
+				end
+			end
+		end
+	end
+end))
+
+track(UserInputService.JumpRequest:Connect(function()
+	if not cfg.InfJump then return end
+	local char = LocalPlayer.Character
+	local hum = char and char:FindFirstChildOfClass("Humanoid")
+	if hum then hum:ChangeState(Enum.HumanoidStateType.Jumping) end
+end))
+
+track(LocalPlayer.Idled:Connect(function()
+	if not cfg.AntiAFK then return end
+	pcall(function()
+		VirtualUser:CaptureController()
+		VirtualUser:ClickButton2(Vector2.new())
+	end)
+end))
+
+------------------------------------------------------------------------
+-- executor mode
+------------------------------------------------------------------------
+local function readMode()
+	if not hasFS then return nil end
+	local ok, data = pcall(function()
+		if isfile(ROOT .. "/mode.txt") then return readfile(ROOT .. "/mode.txt") end
+	end)
+	if ok and (data == "compat" or data == "full") then return data end
+	return nil
+end
+
+local function writeMode(m)
+	if not hasFS then return end
+	pcall(makefolder, ROOT)
+	pcall(writefile, ROOT .. "/mode.txt", m)
+end
+
+local function setMode(newMode)
+	if newMode == "full" and not (type(Drawing) == "table" or type(Drawing) == "userdata")
+		or (newMode == "full" and not Drawing.new) then
+		newMode = "compat"
+		setStatus("no drawing library here. using compat mode.", theme.bad)
+	end
+	mode = newMode
+
+	for _, o in pairs(objects) do destroyOverlay(o) end
+	if fovCircle then fovCircle.destroy() end
+	if silentCircle then silentCircle.destroy() end
+
+	backend = (mode == "full") and makeDrawBackend() or makeGuiBackend()
+	fovCircle = backend.newCircle()
+	silentCircle = backend.newCircle()
+	for _, o in pairs(objects) do buildOverlay(o) end
+
+	if mode == "compat" then
+		cfg.SilentAim = false
+	end
+	writeMode(mode)
+end
+
+------------------------------------------------------------------------
+-- menu
+------------------------------------------------------------------------
+local EXPANDED = UDim2.fromOffset(340, 520)
+local COLLAPSED = UDim2.fromOffset(340, 40)
+
+local main = Instance.new("Frame")
+main.Name = "Main"
+main.Size = EXPANDED
+main.Position = UDim2.fromOffset(40, 90)
+main.BackgroundColor3 = theme.bg
+main.BorderSizePixel = 0
+main.ClipsDescendants = true
+main.Active = true
+main.Visible = false
+main.Parent = gui
+corner(main, 10)
+local mainStroke = Instance.new("UIStroke")
+mainStroke.Color = theme.off
+mainStroke.Thickness = 1
+mainStroke.Parent = main
+
+local header = Instance.new("Frame")
+header.Size = UDim2.new(1, 0, 0, 40)
+header.BackgroundColor3 = theme.panel
+header.BorderSizePixel = 0
+header.Active = true
+header.Parent = main
+
+local title = Instance.new("TextLabel")
+title.Size = UDim2.new(1, -60, 1, 0)
+title.Position = UDim2.fromOffset(14, 0)
+title.BackgroundTransparency = 1
+title.Font = Enum.Font.GothamBold
+title.TextSize = 15
+title.TextXAlignment = Enum.TextXAlignment.Left
+title.TextColor3 = theme.text
+title.Text = "milk  |  arsenal v3"
+title.Parent = header
+
+local minBtn = Instance.new("TextButton")
+minBtn.Size = UDim2.fromOffset(28, 28)
+minBtn.Position = UDim2.new(1, -36, 0, 6)
+minBtn.BackgroundColor3 = theme.item
+minBtn.BorderSizePixel = 0
+minBtn.Font = Enum.Font.GothamBold
+minBtn.TextSize = 16
+minBtn.TextColor3 = theme.text
+minBtn.Text = "-"
+minBtn.AutoButtonColor = true
+minBtn.Parent = header
+corner(minBtn, 6)
+
+local body = Instance.new("Frame")
+body.Size = UDim2.new(1, 0, 1, -40)
+body.Position = UDim2.fromOffset(0, 40)
+body.BackgroundTransparency = 1
+body.Parent = main
+
+local tabBar = Instance.new("Frame")
+tabBar.Size = UDim2.new(1, -20, 0, 26)
+tabBar.Position = UDim2.fromOffset(10, 6)
+tabBar.BackgroundTransparency = 1
+tabBar.Parent = body
+local tabLayout = Instance.new("UIListLayout")
+tabLayout.FillDirection = Enum.FillDirection.Horizontal
+tabLayout.Padding = UDim.new(0, 4)
+tabLayout.Parent = tabBar
+
+statusLabel = Instance.new("TextLabel")
+statusLabel.Size = UDim2.new(1, -20, 0, 20)
+statusLabel.Position = UDim2.new(0, 10, 1, -26)
+statusLabel.BackgroundTransparency = 1
+statusLabel.Font = Enum.Font.Gotham
+statusLabel.TextSize = 11
+statusLabel.TextColor3 = theme.sub
+statusLabel.TextXAlignment = Enum.TextXAlignment.Left
+statusLabel.Text = "insert esp | delete aim | home speed | end unload"
+statusLabel.Parent = body
+
+local pages, tabButtons = {}, {}
+local function showPage(name)
+	for n, p in pairs(pages) do
+		p.frame.Visible = (n == name)
+		tabButtons[n].BackgroundColor3 = (n == name) and theme.accent or theme.item
+		tabButtons[n].TextColor3 = (n == name) and Color3.new(1, 1, 1) or theme.text
+	end
+end
+
+local function makePage(name)
+	local btn = Instance.new("TextButton")
+	btn.Size = UDim2.new(1 / 6, -4, 1, 0)
+	btn.BackgroundColor3 = theme.item
+	btn.BorderSizePixel = 0
+	btn.Font = Enum.Font.GothamBold
+	btn.TextSize = 10
+	btn.TextColor3 = theme.text
+	btn.Text = name
+	btn.AutoButtonColor = false
+	btn.Parent = tabBar
+	corner(btn, 6)
+
+	local sf = Instance.new("ScrollingFrame")
+	sf.Size = UDim2.new(1, -20, 1, -72)
+	sf.Position = UDim2.fromOffset(10, 40)
+	sf.BackgroundTransparency = 1
+	sf.BorderSizePixel = 0
+	sf.ScrollBarThickness = 3
+	sf.ScrollBarImageColor3 = theme.accent
+	sf.CanvasSize = UDim2.new()
+	sf.AutomaticCanvasSize = Enum.AutomaticSize.Y
+	sf.Visible = false
+	sf.Parent = body
+	local layout = Instance.new("UIListLayout")
+	layout.Padding = UDim.new(0, 6)
+	layout.SortOrder = Enum.SortOrder.LayoutOrder
+	layout.Parent = sf
+
+	local page = { frame = sf, order = 0 }
+	pages[name] = page
+	tabButtons[name] = btn
+	track(btn.MouseButton1Click:Connect(function() showPage(name) end))
+	return page
+end
+
+local function newRow(page, class, height)
+	local r = Instance.new(class)
+	r.Size = UDim2.new(1, 0, 0, height)
+	r.BackgroundColor3 = theme.item
+	r.BorderSizePixel = 0
+	page.order += 1
+	r.LayoutOrder = page.order
+	r.Parent = page.frame
+	corner(r, 6)
+	return r
+end
+
+local function label(parent, text, size, pos, font, ts, color, align)
+	local l = Instance.new("TextLabel")
+	l.Size = size
+	l.Position = pos
+	l.BackgroundTransparency = 1
+	l.Font = font
+	l.TextSize = ts
+	l.TextColor3 = color
+	l.TextXAlignment = align
+	l.Text = text
+	l.Parent = parent
+	return l
+end
+
+local function section(page, text)
+	local l = Instance.new("TextLabel")
+	l.Size = UDim2.new(1, 0, 0, 20)
+	l.BackgroundTransparency = 1
+	l.Font = Enum.Font.GothamBold
+	l.TextSize = 11
+	l.TextColor3 = theme.accent
+	l.TextXAlignment = Enum.TextXAlignment.Left
+	l.Text = string.upper(text)
+	page.order += 1
+	l.LayoutOrder = page.order
+	l.Parent = page.frame
+end
+
+local function info(page, text, height)
+	local l = Instance.new("TextLabel")
+	l.Size = UDim2.new(1, 0, 0, height or 30)
+	l.BackgroundTransparency = 1
+	l.Font = Enum.Font.Gotham
+	l.TextSize = 11
+	l.TextColor3 = theme.sub
+	l.TextWrapped = true
+	l.TextXAlignment = Enum.TextXAlignment.Left
+	l.TextYAlignment = Enum.TextYAlignment.Top
+	l.Text = text
+	page.order += 1
+	l.LayoutOrder = page.order
+	l.Parent = page.frame
+end
+
+local refreshers = {}
+
+local function toggle(page, text, key, onChange)
+	local row = newRow(page, "TextButton", 32)
+	row.AutoButtonColor = false
+	row.Text = ""
+	label(row, text, UDim2.new(1, -60, 1, 0), UDim2.fromOffset(12, 0), Enum.Font.Gotham, 13, theme.text, Enum.TextXAlignment.Left)
+
+	local pill = Instance.new("Frame")
+	pill.Size = UDim2.fromOffset(34, 16)
+	pill.Position = UDim2.new(1, -46, 0.5, -8)
+	pill.BackgroundColor3 = cfg[key] and theme.accent or theme.off
+	pill.BorderSizePixel = 0
+	pill.Parent = row
+	corner(pill, 8)
+	local knob = Instance.new("Frame")
+	knob.Size = UDim2.fromOffset(12, 12)
+	knob.Position = cfg[key] and UDim2.fromOffset(20, 2) or UDim2.fromOffset(2, 2)
+	knob.BackgroundColor3 = Color3.new(1, 1, 1)
+	knob.BorderSizePixel = 0
+	knob.Parent = pill
+	corner(knob, 6)
+
+	local function refresh()
+		local on = cfg[key]
+		TweenService:Create(pill, TweenInfo.new(0.15), { BackgroundColor3 = on and theme.accent or theme.off }):Play()
+		TweenService:Create(knob, TweenInfo.new(0.15), { Position = on and UDim2.fromOffset(20, 2) or UDim2.fromOffset(2, 2) }):Play()
+	end
+	refreshers[key] = refresh
+
+	track(row.MouseButton1Click:Connect(function()
+		cfg[key] = not cfg[key]
+		refresh()
+		if onChange then onChange(cfg[key], refresh) end
+	end))
+end
+
+local activeSlider = nil
+
+local function slider(page, text, key, min, max, decimals)
+	local row = newRow(page, "Frame", 44)
+	label(row, text, UDim2.new(1, -80, 0, 20), UDim2.fromOffset(12, 4), Enum.Font.Gotham, 13, theme.text, Enum.TextXAlignment.Left)
+	local valueLbl = label(row, "", UDim2.fromOffset(60, 20), UDim2.new(1, -72, 0, 4), Enum.Font.GothamBold, 12, theme.sub, Enum.TextXAlignment.Right)
+
+	local bar = Instance.new("TextButton")
+	bar.Size = UDim2.new(1, -24, 0, 6)
+	bar.Position = UDim2.new(0, 12, 0, 30)
+	bar.BackgroundColor3 = theme.off
+	bar.BorderSizePixel = 0
+	bar.AutoButtonColor = false
+	bar.Text = ""
+	bar.Parent = row
+	corner(bar, 3)
+	local fill = Instance.new("Frame")
+	fill.BackgroundColor3 = theme.accent
+	fill.BorderSizePixel = 0
+	fill.Parent = bar
+	corner(fill, 3)
+
+	local mult = 10 ^ decimals
+	local function setValue(v)
+		v = math.clamp(math.floor(v * mult + 0.5) / mult, min, max)
+		cfg[key] = v
+		fill.Size = UDim2.fromScale((v - min) / (max - min), 1)
+		valueLbl.Text = tostring(v)
+	end
+	setValue(cfg[key])
+
+	local function fromX(x)
+		local alpha = math.clamp((x - bar.AbsolutePosition.X) / bar.AbsoluteSize.X, 0, 1)
+		setValue(min + (max - min) * alpha)
+	end
+	track(bar.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1
+			or input.UserInputType == Enum.UserInputType.Touch then
+			activeSlider = fromX
+			fromX(input.Position.X)
+		end
+	end))
+end
+
+local function cycle(page, text, key, options, onChange)
+	local row = newRow(page, "TextButton", 32)
+	row.AutoButtonColor = false
+	row.Text = ""
+	label(row, text, UDim2.new(0.5, 0, 1, 0), UDim2.fromOffset(12, 0), Enum.Font.Gotham, 13, theme.text, Enum.TextXAlignment.Left)
+	local valueLbl = label(row, tostring(cfg[key]), UDim2.new(0.5, -12, 1, 0), UDim2.new(0.5, 0, 0, 0), Enum.Font.GothamBold, 12, theme.accent, Enum.TextXAlignment.Right)
+	track(row.MouseButton1Click:Connect(function()
+		local idx = table.find(options, cfg[key]) or 0
+		idx = idx % #options + 1
+		cfg[key] = options[idx]
+		valueLbl.Text = options[idx]
+		if onChange then onChange(options[idx]) end
+	end))
+	return valueLbl
+end
+
+local function button(page, text, color, callback)
+	local btn = newRow(page, "TextButton", 32)
+	btn.BackgroundColor3 = color or theme.item
+	btn.AutoButtonColor = true
+	btn.Font = Enum.Font.GothamBold
+	btn.TextSize = 13
+	btn.TextColor3 = Color3.new(1, 1, 1)
+	btn.Text = text
+	track(btn.MouseButton1Click:Connect(callback))
+	return btn
+end
+
+local visualsP = makePage("visuals")
+local aimP = makePage("aim")
+local combatP = makePage("combat")
+local moveP = makePage("move")
+local miscP = makePage("misc")
+local settingsP = makePage("settings")
+
+-- visuals
+section(visualsP, "esp")
+toggle(visualsP, "esp master", "ESP")
+toggle(visualsP, "highlight + name tags", "Names")
+toggle(visualsP, "tracers", "Tracers")
+toggle(visualsP, "skeleton", "Skeleton")
+slider(visualsP, "skeleton thickness", "SkeletonThickness", 1, 4, 1)
+section(visualsP, "offscreen arrows")
+toggle(visualsP, "arrows", "Arrows")
+slider(visualsP, "arrow radius", "ArrowRadius", 80, 400, 0)
+slider(visualsP, "arrow max distance", "ArrowMaxDist", 50, 1500, 0)
+info(visualsP, "full mode arrows use an ellipse, scale with distance, fade, show distance text and color by health.", 40)
+section(visualsP, "overlay")
+toggle(visualsP, "show fov circles", "ShowFOV")
+toggle(visualsP, "crosshair dot", "Crosshair")
+
+-- aim
+section(aimP, "aimbot")
+toggle(aimP, "aimbot", "Aimbot")
+cycle(aimP, "aim mode", "AimMode", { "Hold", "Toggle", "Always" }, function() aimToggled = false end)
+toggle(aimP, "sticky lock", "Sticky")
+toggle(aimP, "team check", "TeamCheck")
+toggle(aimP, "wall check", "WallCheck")
+slider(aimP, "fov", "FOV", 30, 600, 0)
+slider(aimP, "aim speed", "AimSpeed", 1, 40, 0)
+slider(aimP, "prediction", "Prediction", 0, 0.3, 2)
+cycle(aimP, "aim part", "AimPart", { "Head", "Torso", "UpperTorso", "HumanoidRootPart" })
+section(aimP, "silent aim (full mode)")
+toggle(aimP, "silent aim", "SilentAim", function(on, refresh)
+	if on and (mode ~= "full" or not installSilent()) then
+		cfg.SilentAim = false
+		refresh()
+		setStatus("silent aim needs full mode and hooks", theme.bad)
+	end
+end)
+slider(aimP, "silent fov", "SilentFOV", 30, 600, 0)
+slider(aimP, "hit chance", "HitChance", 1, 100, 0)
+section(aimP, "triggerbot")
+toggle(aimP, "triggerbot", "Trigger")
+slider(aimP, "trigger delay", "TriggerDelay", 0.03, 0.5, 2)
+
+-- combat
+section(combatP, "hitbox expander")
+toggle(combatP, "hitbox expander", "Hitbox")
+cycle(combatP, "hitbox part", "HitboxPart", { "Head", "Torso", "Root" })
+slider(combatP, "hitbox size", "HitboxSize", 2, 30, 1)
+slider(combatP, "hitbox transparency", "HitboxAlpha", 0, 1, 2)
+info(combatP, "grows enemy hitbox parts on your screen. it respects team check. big boxes are easy for other players to spot. turning it off restores the original size.", 52)
+
+-- move
+section(moveP, "movement")
+toggle(moveP, "speedhack", "Speed")
+slider(moveP, "speed", "SpeedValue", 16, 120, 0)
+toggle(moveP, "fly (wasd, space, shift)", "Fly")
+slider(moveP, "fly speed", "FlySpeed", 20, 200, 0)
+toggle(moveP, "noclip", "Noclip")
+toggle(moveP, "infinite jump", "InfJump")
+
+-- misc
+section(miscP, "world")
+toggle(miscP, "fov changer", "CamFOVOn", function(on)
+	if not on then
+		local cam = Workspace.CurrentCamera
+		if cam then cam.FieldOfView = origFOV end
+	end
+end)
+slider(miscP, "camera fov", "CamFOV", 40, 120, 0)
+toggle(miscP, "fullbright", "Fullbright", function(on) setFullbright(on) end)
+toggle(miscP, "anti afk", "AntiAFK")
+section(miscP, "server")
+button(miscP, "rejoin", nil, function()
+	setStatus("rejoining...")
+	pcall(function() TeleportService:TeleportToPlaceInstance(game.PlaceId, game.JobId, LocalPlayer) end)
+end)
+button(miscP, "server hop", nil, serverHop)
+
+-- settings
+section(settingsP, "executor mode")
+local modeLabel = cycle(settingsP, "mode", "ModeShown", { "compat", "full" }, function(v) setMode(v) end)
+info(settingsP, "compat = xeno / solara. plain gui overlay, no hooks. full = high unc. drawing overlay, better arrows, silent aim.", 52)
+button(settingsP, "ask me again next run", nil, function()
+	if hasFS then pcall(function() if isfile(ROOT .. "/mode.txt") then delfile(ROOT .. "/mode.txt") end end) end
+	setStatus("it will ask next time you run the script")
+end)
+section(settingsP, "script")
+button(settingsP, "unload script", theme.bad, function() cleanup() end)
+
+showPage("visuals")
+
+-- minimize
+local minimized = false
+track(minBtn.MouseButton1Click:Connect(function()
+	minimized = not minimized
+	minBtn.Text = minimized and "+" or "-"
+	if minimized then
+		body.Visible = false
+	else
+		task.delay(0.12, function()
+			if not minimized and main.Parent then body.Visible = true end
+		end)
+	end
+	TweenService:Create(main, TweenInfo.new(0.2, Enum.EasingStyle.Quad), {
+		Size = minimized and COLLAPSED or EXPANDED,
+	}):Play()
+end))
+
+-- drag + slider drag
+do
+	local dragging = false
+	local dragStart, startPos
+	track(header.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1
+			or input.UserInputType == Enum.UserInputType.Touch then
+			dragging = true
+			dragStart = input.Position
+			startPos = main.Position
+		end
+	end))
+	track(UserInputService.InputChanged:Connect(function(input)
+		local isMove = input.UserInputType == Enum.UserInputType.MouseMovement
+			or input.UserInputType == Enum.UserInputType.Touch
+		if not isMove then return end
+		if activeSlider then
+			activeSlider(input.Position.X)
+		elseif dragging then
+			local delta = input.Position - dragStart
+			local screen = gui.AbsoluteSize
+			local x = math.clamp(startPos.X.Offset + delta.X, 0, math.max(0, screen.X - 120))
+			local y = math.clamp(startPos.Y.Offset + delta.Y, 0, math.max(0, screen.Y - 40))
+			main.Position = UDim2.fromOffset(x, y)
+		end
+	end))
+	track(UserInputService.InputEnded:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1
+			or input.UserInputType == Enum.UserInputType.Touch then
+			dragging = false
+			activeSlider = nil
+		end
+	end))
+end
+
+cleanup = function()
+	silent.active = false
+	for _, conn in ipairs(connections) do pcall(function() conn:Disconnect() end) end
+	connections = {}
+	for part in pairs(hitboxOrig) do restoreHitbox(part) end
+	for plr in pairs(objects) do removePlayer(plr) end
+	if fovCircle then fovCircle.destroy() end
+	if silentCircle then silentCircle.destroy() end
+	pcall(setFullbright, false)
+	pcall(function()
+		local cam = Workspace.CurrentCamera
+		if cam then cam.FieldOfView = origFOV end
+		local char = LocalPlayer.Character
+		local hum = char and char:FindFirstChildOfClass("Humanoid")
+		if hum then hum.PlatformStand = false end
+	end)
+	pcall(function() gui:Destroy() end)
+end
+
+env.MilkCleanup = cleanup
+
+track(UserInputService.InputBegan:Connect(function(input, processed)
+	if processed then return end
+	local k = input.KeyCode
+	if k == Enum.KeyCode.RightShift then
+		main.Visible = not main.Visible
+	elseif k == Enum.KeyCode.Insert then
+		cfg.ESP = not cfg.ESP
+		refreshers.ESP()
+	elseif k == Enum.KeyCode.Delete then
+		cfg.Aimbot = not cfg.Aimbot
+		refreshers.Aimbot()
+	elseif k == Enum.KeyCode.Home then
+		cfg.Speed = not cfg.Speed
+		refreshers.Speed()
+	elseif k == Enum.KeyCode.End then
+		cleanup()
+	end
+end))
+
+------------------------------------------------------------------------
+-- startup: ask which executor, or use the saved answer
+------------------------------------------------------------------------
+cfg.ModeShown = "compat"
+
+local function finishStart(m)
+	setMode(m)
+	cfg.ModeShown = mode
+	modeLabel.Text = mode
+	main.Visible = true
+	setStatus("mode: " .. mode .. ". insert esp | delete aim | end unload")
+end
+
+local function askExecutor()
+	local detected = "unknown"
+	pcall(function()
+		if identifyexecutor then detected = tostring((identifyexecutor())) end
+	end)
+	local low = string.lower(detected)
+	local suggestCompat = low:find("xeno") ~= nil or low:find("solara") ~= nil
+
+	local prompt = Instance.new("Frame")
+	prompt.Size = UDim2.fromOffset(320, 210)
+	prompt.AnchorPoint = Vector2.new(0.5, 0.5)
+	prompt.Position = UDim2.fromScale(0.5, 0.5)
+	prompt.BackgroundColor3 = theme.bg
+	prompt.BorderSizePixel = 0
+	prompt.Active = true
+	prompt.ZIndex = 50
+	prompt.Parent = gui
+	corner(prompt, 12)
+	local ps = Instance.new("UIStroke")
+	ps.Color = theme.off
+	ps.Parent = prompt
+
+	local t1 = label(prompt, "which executor are you using?", UDim2.new(1, -24, 0, 24), UDim2.fromOffset(12, 12),
+		Enum.Font.GothamBold, 16, theme.text, Enum.TextXAlignment.Left)
+	t1.ZIndex = 51
+	local t2 = label(prompt, "detected: " .. detected, UDim2.new(1, -24, 0, 18), UDim2.fromOffset(12, 40),
+		Enum.Font.Gotham, 12, theme.sub, Enum.TextXAlignment.Left)
+	t2.ZIndex = 51
+
+	local function choice(text, sub, y, isSuggested, m)
+		local b = Instance.new("TextButton")
+		b.Size = UDim2.new(1, -24, 0, 56)
+		b.Position = UDim2.fromOffset(12, y)
+		b.BackgroundColor3 = isSuggested and theme.accent or theme.item
+		b.BorderSizePixel = 0
+		b.AutoButtonColor = true
+		b.Text = ""
+		b.ZIndex = 51
+		b.Parent = prompt
+		corner(b, 8)
+		local a = label(b, text, UDim2.new(1, -20, 0, 22), UDim2.fromOffset(10, 6), Enum.Font.GothamBold, 14,
+			Color3.new(1, 1, 1), Enum.TextXAlignment.Left)
+		a.ZIndex = 52
+		local c = label(b, sub, UDim2.new(1, -20, 0, 18), UDim2.fromOffset(10, 30), Enum.Font.Gotham, 11,
+			isSuggested and Color3.new(1, 1, 1) or theme.sub, Enum.TextXAlignment.Left)
+		c.ZIndex = 52
+		track(b.MouseButton1Click:Connect(function()
+			prompt:Destroy()
+			finishStart(m)
+		end))
+	end
+	choice("xeno / solara", "compat: plain gui overlay, no hooks", 70, suggestCompat, "compat")
+	choice("other (high unc)", "full: drawing overlay, better arrows, silent aim", 134, not suggestCompat and detected ~= "unknown", "full")
+end
+
+local saved = readMode()
+if saved then
+	finishStart(saved)
+else
+	askExecutor()
+end
