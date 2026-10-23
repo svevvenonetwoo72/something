@@ -1,0 +1,3382 @@
+-- milk reanimator v6
+-- clone mode: copies your living body onto a puppet (no kill)
+-- limb mode: kills you once, builds a puppet, drives your joints (r6 only)
+-- editor: make your own dances, add music, save, share as json (data only, never code)
+
+local cr = cloneref or function(x) return x end
+local Players = cr(game:GetService("Players"))
+local RunService = cr(game:GetService("RunService"))
+local UserInputService = cr(game:GetService("UserInputService"))
+local TweenService = cr(game:GetService("TweenService"))
+local Workspace = cr(game:GetService("Workspace"))
+local HttpService = cr(game:GetService("HttpService"))
+local CoreGui = cr(game:GetService("CoreGui"))
+
+local env = getgenv()
+if env.MilkReanimCleanup then pcall(env.MilkReanimCleanup) end
+
+local LocalPlayer = Players.LocalPlayer
+local OWNER_ID = 11830322385
+local ROOT = "MilkReanim"
+local origFPDH = Workspace.FallenPartsDestroyHeight
+
+local okPS, PreSim = pcall(function() return RunService.PreSimulation end)
+if not okPS or not PreSim then PreSim = RunService.Stepped end
+
+local hasFS = type(writefile) == "function" and type(readfile) == "function"
+	and type(isfile) == "function" and type(makefolder) == "function"
+	and type(listfiles) == "function"
+
+------------------------------------------------------------------------
+-- data
+------------------------------------------------------------------------
+local cfg = {
+	Mode = "Clone",
+	ParkMode = "Under puppet",
+	ShowReal = false,
+	NoDrift = true,
+	Loop = true,
+	StopOnMove = true,
+	AnimSpeed = 1,
+	Spin = false,
+	Bob = false,
+	Float = false,
+	Sway = false,
+	SpinSpeed = 6,
+	FxSpeed = 1,
+	Hotkeys = false,
+	Orbit = false,
+	OrbitSpeed = 0.6,
+	OrbitDist = 12,
+	Ease = "Smooth",
+	PreviewSpeed = 1,
+	Snap = false,
+	FlipDrag = false,
+	TLZoom = 1,
+	TLScroll = 0,
+	Wide = false,
+	Tool = "rotate",
+	FxColor = "pink",
+	Aura = false,
+	Trails = false,
+	Glow = false,
+	BodyLight = false,
+	Neon = false,
+	Ring = false,
+	PostPreset = "none",
+	ClockOn = false,
+	Clock = 14,
+	FxEvent = "burst",
+}
+
+local EMOTES = {
+	R15 = {
+		{ "dance 1", 507771019 }, { "dance 2", 507776043 }, { "dance 3", 507777268 },
+		{ "wave", 507770239 }, { "cheer", 507770677 }, { "laugh", 507770818 }, { "point", 507770453 },
+	},
+	R6 = {
+		{ "dance 1", 182435998 }, { "dance 2", 182436842 }, { "dance 3", 182436935 },
+		{ "wave", 128777973 }, { "cheer", 129423030 }, { "laugh", 129423131 }, { "point", 128853357 },
+	},
+}
+
+local LOCO_IDS = { idle = 180435571, walk = 180426354, fall = 180436148 }
+
+local PUPPET_DIMS = {
+	HumanoidRootPart = Vector3.new(2, 2, 1),
+	Torso = Vector3.new(2, 2, 1),
+	Head = Vector3.new(2, 1, 1),
+	["Left Arm"] = Vector3.new(1, 2, 1),
+	["Right Arm"] = Vector3.new(1, 2, 1),
+	["Left Leg"] = Vector3.new(1, 2, 1),
+	["Right Leg"] = Vector3.new(1, 2, 1),
+}
+
+local PUPPET_OFFSETS = {
+	HumanoidRootPart = CFrame.new(0, 0, 0),
+	Torso = CFrame.new(0, 0, 0),
+	Head = CFrame.new(0, 1.5, 0),
+	["Left Arm"] = CFrame.new(-1.5, 0, 0),
+	["Right Arm"] = CFrame.new(1.5, 0, 0),
+	["Left Leg"] = CFrame.new(-0.5, -2, 0),
+	["Right Leg"] = CFrame.new(0.5, -2, 0),
+}
+
+-- parent part, child part, joint name, c0, c1
+local R6_JOINTS = {
+	{ "HumanoidRootPart", "Torso", "RootJoint",
+		CFrame.new(0, 0, 0, -1, 0, 0, 0, 0, 1, 0, 1, 0),
+		CFrame.new(0, 0, 0, -1, 0, 0, 0, 0, 1, 0, 1, 0) },
+	{ "Torso", "Head", "Neck",
+		CFrame.new(0, 1, 0, -1, 0, 0, 0, 0, 1, 0, 1, 0),
+		CFrame.new(0, -0.5, 0, -1, 0, 0, 0, 0, 1, 0, 1, 0) },
+	{ "Torso", "Left Arm", "Left Shoulder",
+		CFrame.new(-1, 0.5, 0, 0, 0, -1, 0, 1, 0, 1, 0, 0),
+		CFrame.new(0.5, 0.5, 0, 0, 0, -1, 0, 1, 0, 1, 0, 0) },
+	{ "Torso", "Right Arm", "Right Shoulder",
+		CFrame.new(1, 0.5, 0, 0, 0, 1, 0, 1, 0, -1, 0, 0),
+		CFrame.new(-0.5, 0.5, 0, 0, 0, 1, 0, 1, 0, -1, 0, 0) },
+	{ "Torso", "Left Leg", "Left Hip",
+		CFrame.new(-1, -1, 0, 0, 0, -1, 0, 1, 0, 1, 0, 0),
+		CFrame.new(-0.5, 1, 0, 0, 0, -1, 0, 1, 0, 1, 0, 0) },
+	{ "Torso", "Right Leg", "Right Hip",
+		CFrame.new(1, -1, 0, 0, 0, 1, 0, 1, 0, -1, 0, 0),
+		CFrame.new(0.5, 1, 0, 0, 0, 1, 0, 1, 0, -1, 0, 0) },
+}
+
+local JOINTKEY = {
+	RootJoint = "Root", Neck = "Neck",
+	["Left Shoulder"] = "LS", ["Right Shoulder"] = "RS",
+	["Left Hip"] = "LH", ["Right Hip"] = "RH",
+}
+
+-- joints the editor can animate (one timeline track each)
+local JOINT_ORDER = {
+	{ "Root", "body" }, { "Neck", "head" }, { "LS", "left arm" },
+	{ "RS", "right arm" }, { "LH", "left leg" }, { "RH", "right leg" },
+}
+local JOINT_LABEL = {}
+for _, j in ipairs(JOINT_ORDER) do JOINT_LABEL[j[1]] = j[2] end
+local DEF_BY_KEY = {}
+for _, def in ipairs(R6_JOINTS) do DEF_BY_KEY[JOINTKEY[def[3]]] = def end
+local KEY_BY_PART = {
+	HumanoidRootPart = "Root", Torso = "Root", Head = "Neck",
+	["Left Arm"] = "LS", ["Right Arm"] = "RS", ["Left Leg"] = "LH", ["Right Leg"] = "RH",
+}
+
+-- client side effects (nobody else in the server sees these)
+local FX_KINDS = { burst = true, flash = true, shake = true, fov = true, ring = true, tint = true }
+local FX_KIND_LIST = { "burst", "flash", "shake", "fov", "ring", "tint" }
+local FX_COLOR_NAMES = { "white", "pink", "blue", "cyan", "green", "gold", "red", "purple", "rainbow" }
+local FX_COLOR_OK = {}
+for _, n in ipairs(FX_COLOR_NAMES) do FX_COLOR_OK[n] = true end
+local FX_COLORS = {
+	white = Color3.fromRGB(255, 255, 255),
+	pink = Color3.fromRGB(255, 110, 200),
+	blue = Color3.fromRGB(90, 140, 255),
+	cyan = Color3.fromRGB(80, 230, 255),
+	green = Color3.fromRGB(100, 255, 150),
+	gold = Color3.fromRGB(255, 205, 70),
+	red = Color3.fromRGB(255, 80, 90),
+	purple = Color3.fromRGB(170, 110, 255),
+}
+
+local THEMES = {
+	milk = {
+		bg = Color3.fromRGB(251, 249, 244),
+		panel = Color3.fromRGB(240, 236, 227),
+		item = Color3.fromRGB(228, 223, 212),
+		accent = Color3.fromRGB(70, 115, 225),
+		text = Color3.fromRGB(38, 36, 33),
+		sub = Color3.fromRGB(112, 106, 98),
+		stroke = Color3.fromRGB(206, 199, 187),
+		good = Color3.fromRGB(30, 140, 85),
+		bad = Color3.fromRGB(200, 55, 65),
+	},
+	dark = {
+		bg = Color3.fromRGB(18, 18, 21),
+		panel = Color3.fromRGB(28, 28, 33),
+		item = Color3.fromRGB(41, 41, 48),
+		accent = Color3.fromRGB(105, 150, 255),
+		text = Color3.fromRGB(240, 240, 245),
+		sub = Color3.fromRGB(160, 160, 172),
+		stroke = Color3.fromRGB(62, 62, 72),
+		good = Color3.fromRGB(110, 225, 160),
+		bad = Color3.fromRGB(255, 120, 130),
+	},
+}
+
+------------------------------------------------------------------------
+-- state
+------------------------------------------------------------------------
+local connections = {}
+local syncConns = {}
+local themed = {}
+local themeHooks = {}
+local settings = { theme = "milk", libraryUrl = "" }
+
+local state = {
+	active = false,
+	starting = false,
+	kind = nil,
+	real = nil,
+	realHum = nil,
+	realRoot = nil,
+	rig = nil,
+	rigHum = nil,
+	map = {},
+	origReal = {},
+	origRig = {},
+	limb = nil,
+	loco = {},
+	locoCur = nil,
+	track = nil,
+	custom = { playing = false, anim = nil, t = 0, speed = 1 },
+	fxActive = false,
+	base = Vector3.zero,
+	yaw = 0,
+	t = 0,
+}
+
+local editor = {
+	anim = nil,
+	time = 0,
+	selJoint = nil,
+	selKey = nil,
+	selEvent = nil,
+	live = false,
+	fine = {},
+	refreshers = {},
+	undo = {},
+	lastUndo = 0,
+	localNames = {},
+	localSel = nil,
+}
+
+-- these tables hold the new functions so the main chunk stays under the local limit
+local ed = {}
+local gz = { busy = false }
+local tl = {}
+local fx = { objs = {}, extra = {}, neonSaved = {}, post = {}, shake = 0, shakeMag = 0 }
+local minimized = false
+
+local startClone, stopClone, startLimb, stopLimb
+local startReanimate, stopReanimate
+local playAnim, stopAnim, stopCustom, applyVisibility, cleanup
+
+local function track(conn)
+	table.insert(connections, conn)
+	return conn
+end
+
+local function corner(parent, radius)
+	local c = Instance.new("UICorner")
+	c.CornerRadius = UDim.new(0, radius)
+	c.Parent = parent
+end
+
+------------------------------------------------------------------------
+-- files and settings
+------------------------------------------------------------------------
+local function safeName(s)
+	s = tostring(s or ""):gsub("[^%w_%-]", "_")
+	s = s:sub(1, 40)
+	if s == "" then s = "untitled" end
+	return s
+end
+
+local function ensureFolders()
+	if not hasFS then return end
+	pcall(makefolder, ROOT)
+	pcall(makefolder, ROOT .. "/anims")
+	pcall(makefolder, ROOT .. "/music")
+end
+
+local function saveSettings()
+	if not hasFS then return end
+	ensureFolders()
+	pcall(writefile, ROOT .. "/settings.json", HttpService:JSONEncode(settings))
+end
+
+local function loadSettings()
+	if not hasFS then return end
+	local ok, data = pcall(function()
+		if isfile(ROOT .. "/settings.json") then
+			return HttpService:JSONDecode(readfile(ROOT .. "/settings.json"))
+		end
+	end)
+	if ok and type(data) == "table" then
+		if data.theme == "dark" or data.theme == "milk" then settings.theme = data.theme end
+		if type(data.libraryUrl) == "string" and #data.libraryUrl < 300 then
+			settings.libraryUrl = data.libraryUrl
+		end
+	end
+end
+loadSettings()
+
+local theme = THEMES[settings.theme] or THEMES.milk
+
+local function skin(inst, prop, key)
+	table.insert(themed, { inst, prop, key })
+	inst[prop] = theme[key]
+	return inst
+end
+
+local function applyTheme(name)
+	theme = THEMES[name] or THEMES.milk
+	settings.theme = THEMES[name] and name or "milk"
+	for i = #themed, 1, -1 do
+		local t = themed[i]
+		if t[1].Parent then
+			t[1][t[2]] = theme[t[3]]
+		else
+			table.remove(themed, i)
+		end
+	end
+	for _, f in ipairs(themeHooks) do pcall(f) end
+	saveSettings()
+end
+
+------------------------------------------------------------------------
+-- gui scaffold
+------------------------------------------------------------------------
+local guiParent = (gethui and gethui()) or CoreGui
+local gui = Instance.new("ScreenGui")
+gui.Name = "MilkReanim"
+gui.ResetOnSpawn = false
+gui.IgnoreGuiInset = true
+gui.DisplayOrder = 999
+gui.Parent = guiParent
+
+local EXPANDED = UDim2.fromOffset(360, 580)
+local COLLAPSED = UDim2.fromOffset(360, 44)
+
+local main = Instance.new("Frame")
+main.Name = "Main"
+main.Size = EXPANDED
+main.Position = UDim2.fromOffset(30, 70)
+main.BorderSizePixel = 0
+main.ClipsDescendants = true
+main.Active = true
+main.Parent = gui
+skin(main, "BackgroundColor3", "bg")
+corner(main, 12)
+local mainStroke = Instance.new("UIStroke")
+mainStroke.Thickness = 1
+mainStroke.Parent = main
+skin(mainStroke, "Color", "stroke")
+
+local header = Instance.new("Frame")
+header.Size = UDim2.new(1, 0, 0, 44)
+header.BorderSizePixel = 0
+header.Active = true
+header.Parent = main
+skin(header, "BackgroundColor3", "panel")
+
+local avatar = Instance.new("ImageLabel")
+avatar.Size = UDim2.fromOffset(30, 30)
+avatar.Position = UDim2.fromOffset(8, 7)
+avatar.BorderSizePixel = 0
+avatar.Image = "rbxthumb://type=AvatarHeadShot&id=" .. OWNER_ID .. "&w=150&h=150"
+avatar.Parent = header
+skin(avatar, "BackgroundColor3", "item")
+corner(avatar, 15)
+
+local title = Instance.new("TextLabel")
+title.Size = UDim2.new(1, -100, 1, 0)
+title.Position = UDim2.fromOffset(46, 0)
+title.BackgroundTransparency = 1
+title.Font = Enum.Font.GothamBold
+title.TextSize = 15
+title.TextXAlignment = Enum.TextXAlignment.Left
+title.Text = "milk reanimator  |  v6"
+title.Parent = header
+skin(title, "TextColor3", "text")
+
+local minBtn = Instance.new("TextButton")
+minBtn.Size = UDim2.fromOffset(28, 28)
+minBtn.Position = UDim2.new(1, -36, 0, 8)
+minBtn.BorderSizePixel = 0
+minBtn.Font = Enum.Font.GothamBold
+minBtn.TextSize = 16
+minBtn.Text = "-"
+minBtn.AutoButtonColor = true
+minBtn.Parent = header
+skin(minBtn, "BackgroundColor3", "item")
+skin(minBtn, "TextColor3", "text")
+corner(minBtn, 6)
+
+local body = Instance.new("Frame")
+body.Size = UDim2.new(1, 0, 1, -44)
+body.Position = UDim2.fromOffset(0, 44)
+body.BackgroundTransparency = 1
+body.Parent = main
+
+local tabBar = Instance.new("Frame")
+tabBar.Size = UDim2.new(1, -20, 0, 26)
+tabBar.Position = UDim2.fromOffset(10, 6)
+tabBar.BackgroundTransparency = 1
+tabBar.Parent = body
+local tabLayout = Instance.new("UIListLayout")
+tabLayout.FillDirection = Enum.FillDirection.Horizontal
+tabLayout.Padding = UDim.new(0, 4)
+tabLayout.Parent = tabBar
+
+local status = Instance.new("TextLabel")
+status.Size = UDim2.new(1, -20, 0, 20)
+status.Position = UDim2.new(0, 10, 1, -26)
+status.BackgroundTransparency = 1
+status.Font = Enum.Font.Gotham
+status.TextSize = 11
+status.TextXAlignment = Enum.TextXAlignment.Left
+status.Text = "ready. open the learn tab for a tutorial."
+status.Parent = body
+local statusKind = "sub"
+status.TextColor3 = theme.sub
+
+local function setStatus(text, kind)
+	statusKind = kind or "sub"
+	status.Text = text
+	status.TextColor3 = theme[statusKind]
+end
+table.insert(themeHooks, function() status.TextColor3 = theme[statusKind] end)
+
+local pages, tabButtons = {}, {}
+local currentPage = "dance"
+
+local function paintTabs()
+	for n, b in pairs(tabButtons) do
+		local on = n == currentPage
+		b.BackgroundColor3 = on and theme.accent or theme.item
+		b.TextColor3 = on and Color3.new(1, 1, 1) or theme.text
+	end
+end
+table.insert(themeHooks, paintTabs)
+
+local function showPage(name)
+	currentPage = name
+	for n, p in pairs(pages) do
+		p.frame.Visible = (n == name)
+	end
+	paintTabs()
+	editor.live = (name == "editor")
+	if state.active and applyVisibility then applyVisibility() end
+	if name == "editor" and tl.rebuild then tl.rebuild() end
+end
+
+local function makePage(name)
+	local btn = Instance.new("TextButton")
+	btn.Size = UDim2.new(1 / 6, -4, 1, 0)
+	btn.BorderSizePixel = 0
+	btn.Font = Enum.Font.GothamBold
+	btn.TextSize = 10
+	btn.Text = name
+	btn.AutoButtonColor = false
+	btn.Parent = tabBar
+	corner(btn, 6)
+
+	local sf = Instance.new("ScrollingFrame")
+	sf.Size = UDim2.new(1, -20, 1, -72)
+	sf.Position = UDim2.fromOffset(10, 40)
+	sf.BackgroundTransparency = 1
+	sf.BorderSizePixel = 0
+	sf.ScrollBarThickness = 3
+	sf.CanvasSize = UDim2.new()
+	sf.AutomaticCanvasSize = Enum.AutomaticSize.Y
+	sf.Visible = false
+	sf.Parent = body
+	skin(sf, "ScrollBarImageColor3", "accent")
+
+	local layout = Instance.new("UIListLayout")
+	layout.Padding = UDim.new(0, 6)
+	layout.SortOrder = Enum.SortOrder.LayoutOrder
+	layout.Parent = sf
+
+	local page = { frame = sf, order = 0 }
+	pages[name] = page
+	tabButtons[name] = btn
+	track(btn.MouseButton1Click:Connect(function() showPage(name) end))
+	return page
+end
+
+------------------------------------------------------------------------
+-- widgets
+------------------------------------------------------------------------
+local function nextOrder(page)
+	page.order += 1
+	return page.order
+end
+
+local function newRow(page, class, height)
+	local r = Instance.new(class)
+	r.Size = UDim2.new(1, 0, 0, height)
+	r.BorderSizePixel = 0
+	r.LayoutOrder = nextOrder(page)
+	r.Parent = page.frame
+	skin(r, "BackgroundColor3", "item")
+	corner(r, 6)
+	return r
+end
+
+local function mkLabel(parent, text, size, pos, font, ts, colorKey, align)
+	local l = Instance.new("TextLabel")
+	l.Size = size
+	l.Position = pos
+	l.BackgroundTransparency = 1
+	l.Font = font
+	l.TextSize = ts
+	l.TextXAlignment = align
+	l.Text = text
+	l.Parent = parent
+	skin(l, "TextColor3", colorKey)
+	return l
+end
+
+local function info(page, text, height)
+	local l = Instance.new("TextLabel")
+	l.Size = UDim2.new(1, 0, 0, height or (math.ceil(#text / 48) * 14 + 8))
+	l.BackgroundTransparency = 1
+	l.Font = Enum.Font.Gotham
+	l.TextSize = 11
+	l.TextWrapped = true
+	l.TextXAlignment = Enum.TextXAlignment.Left
+	l.TextYAlignment = Enum.TextYAlignment.Top
+	l.Text = text
+	l.LayoutOrder = nextOrder(page)
+	l.Parent = page.frame
+	skin(l, "TextColor3", "sub")
+	return l
+end
+
+local function section(page, text)
+	local l = Instance.new("TextLabel")
+	l.Size = UDim2.new(1, 0, 0, 20)
+	l.BackgroundTransparency = 1
+	l.Font = Enum.Font.GothamBold
+	l.TextSize = 11
+	l.TextXAlignment = Enum.TextXAlignment.Left
+	l.Text = string.upper(text)
+	l.LayoutOrder = nextOrder(page)
+	l.Parent = page.frame
+	skin(l, "TextColor3", "accent")
+end
+
+local function button(page, text, kind, callback)
+	local btn = newRow(page, "TextButton", 32)
+	btn.AutoButtonColor = true
+	btn.Font = Enum.Font.GothamBold
+	btn.TextSize = 13
+	btn.Text = text
+	if kind == "accent" then
+		skin(btn, "BackgroundColor3", "accent")
+		btn.TextColor3 = Color3.new(1, 1, 1)
+	elseif kind == "danger" then
+		skin(btn, "BackgroundColor3", "bad")
+		btn.TextColor3 = Color3.new(1, 1, 1)
+	else
+		skin(btn, "TextColor3", "text")
+	end
+	track(btn.MouseButton1Click:Connect(callback))
+	return btn
+end
+
+local function checkbox(page, text, get, set)
+	local row = newRow(page, "TextButton", 34)
+	row.AutoButtonColor = false
+	row.Text = ""
+	mkLabel(row, text, UDim2.new(1, -50, 1, 0), UDim2.fromOffset(12, 0),
+		Enum.Font.Gotham, 13, "text", Enum.TextXAlignment.Left)
+
+	local box = Instance.new("Frame")
+	box.Size = UDim2.fromOffset(22, 22)
+	box.Position = UDim2.new(1, -34, 0.5, -11)
+	box.BorderSizePixel = 0
+	box.Parent = row
+	corner(box, 5)
+
+	local function paint()
+		box.BackgroundColor3 = get() and theme.accent or theme.panel
+	end
+	paint()
+	table.insert(themeHooks, paint)
+
+	track(row.MouseButton1Click:Connect(function()
+		set(not get())
+		paint()
+	end))
+	return paint
+end
+
+local function cycle(page, text, getOptions, get, set)
+	local row = newRow(page, "Frame", 34)
+	mkLabel(row, text, UDim2.new(0.5, 0, 1, 0), UDim2.fromOffset(12, 0),
+		Enum.Font.Gotham, 13, "text", Enum.TextXAlignment.Left)
+
+	local btn = Instance.new("TextButton")
+	btn.Size = UDim2.new(0.5, -18, 0, 24)
+	btn.Position = UDim2.new(0.5, 6, 0.5, -12)
+	btn.BorderSizePixel = 0
+	btn.AutoButtonColor = true
+	btn.Font = Enum.Font.GothamBold
+	btn.TextSize = 12
+	btn.TextTruncate = Enum.TextTruncate.AtEnd
+	btn.Parent = row
+	skin(btn, "BackgroundColor3", "panel")
+	skin(btn, "TextColor3", "accent")
+	corner(btn, 6)
+
+	local function options()
+		return type(getOptions) == "function" and getOptions() or getOptions
+	end
+	local function paint()
+		local v = get()
+		btn.Text = (v == nil or v == "") and "(none)" or tostring(v)
+	end
+	paint()
+
+	track(btn.MouseButton1Click:Connect(function()
+		local list = options()
+		if #list == 0 then return end
+		local idx = table.find(list, get()) or 0
+		idx = idx % #list + 1
+		set(list[idx])
+		paint()
+	end))
+	return paint
+end
+
+local activeSlider = nil
+local activeRelease = nil
+
+local function slider(page, text, min, max, dec, get, set)
+	local spec = { text = text, min = min, max = max, dec = dec, get = get, set = set }
+	local row = newRow(page, "Frame", 44)
+	local nameLbl = mkLabel(row, text, UDim2.new(1, -80, 0, 20), UDim2.fromOffset(12, 4),
+		Enum.Font.Gotham, 13, "text", Enum.TextXAlignment.Left)
+	local valueLbl = mkLabel(row, "", UDim2.fromOffset(60, 20), UDim2.new(1, -72, 0, 4),
+		Enum.Font.GothamBold, 12, "sub", Enum.TextXAlignment.Right)
+
+	local bar = Instance.new("TextButton")
+	bar.Size = UDim2.new(1, -24, 0, 6)
+	bar.Position = UDim2.new(0, 12, 0, 30)
+	bar.BorderSizePixel = 0
+	bar.AutoButtonColor = false
+	bar.Text = ""
+	bar.Parent = row
+	skin(bar, "BackgroundColor3", "panel")
+	corner(bar, 3)
+
+	local fill = Instance.new("Frame")
+	fill.BorderSizePixel = 0
+	fill.Parent = bar
+	skin(fill, "BackgroundColor3", "accent")
+	corner(fill, 3)
+
+	local ctrl = { row = row, spec = spec }
+	function ctrl.render()
+		nameLbl.Text = spec.text
+		local v = spec.get()
+		local span = spec.max - spec.min
+		fill.Size = UDim2.fromScale(span > 0 and math.clamp((v - spec.min) / span, 0, 1) or 0, 1)
+		valueLbl.Text = string.format("%." .. spec.dec .. "f", v)
+	end
+	local function apply(v)
+		local mult = 10 ^ spec.dec
+		v = math.clamp(math.floor(v * mult + 0.5) / mult, spec.min, spec.max)
+		spec.set(v)
+		ctrl.render()
+	end
+	ctrl.render()
+
+	local function fromX(x)
+		local alpha = math.clamp((x - bar.AbsolutePosition.X) / bar.AbsoluteSize.X, 0, 1)
+		apply(spec.min + (spec.max - spec.min) * alpha)
+	end
+	track(bar.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1
+			or input.UserInputType == Enum.UserInputType.Touch then
+			activeSlider = fromX
+			fromX(input.Position.X)
+		end
+	end))
+	return ctrl
+end
+
+local function textBox(page, placeholder, text, onLost)
+	local row = newRow(page, "Frame", 36)
+	local box = Instance.new("TextBox")
+	box.Size = UDim2.new(1, -16, 1, -10)
+	box.Position = UDim2.fromOffset(8, 5)
+	box.BorderSizePixel = 0
+	box.Font = Enum.Font.Gotham
+	box.TextSize = 12
+	box.PlaceholderText = placeholder
+	box.Text = text or ""
+	box.ClearTextOnFocus = false
+	box.TextXAlignment = Enum.TextXAlignment.Left
+	box.Parent = row
+	skin(box, "BackgroundColor3", "panel")
+	skin(box, "TextColor3", "text")
+	skin(box, "PlaceholderColor3", "sub")
+	corner(box, 6)
+	local pad = Instance.new("UIPadding")
+	pad.PaddingLeft = UDim.new(0, 8)
+	pad.Parent = box
+	if onLost then
+		track(box.FocusLost:Connect(function() onLost(box.Text) end))
+	end
+	return box
+end
+
+local function textRow(page, placeholder, buttonText, callback)
+	local row = newRow(page, "Frame", 36)
+	local box = Instance.new("TextBox")
+	box.Size = UDim2.new(1, -92, 1, -10)
+	box.Position = UDim2.fromOffset(8, 5)
+	box.BorderSizePixel = 0
+	box.Font = Enum.Font.Gotham
+	box.TextSize = 12
+	box.PlaceholderText = placeholder
+	box.Text = ""
+	box.ClearTextOnFocus = false
+	box.TextXAlignment = Enum.TextXAlignment.Left
+	box.Parent = row
+	skin(box, "BackgroundColor3", "panel")
+	skin(box, "TextColor3", "text")
+	skin(box, "PlaceholderColor3", "sub")
+	corner(box, 6)
+	local pad = Instance.new("UIPadding")
+	pad.PaddingLeft = UDim.new(0, 8)
+	pad.Parent = box
+
+	local btn = Instance.new("TextButton")
+	btn.Size = UDim2.fromOffset(72, 26)
+	btn.Position = UDim2.new(1, -80, 0.5, -13)
+	btn.BorderSizePixel = 0
+	btn.Font = Enum.Font.GothamBold
+	btn.TextSize = 12
+	btn.Text = buttonText
+	btn.TextColor3 = Color3.new(1, 1, 1)
+	btn.Parent = row
+	skin(btn, "BackgroundColor3", "accent")
+	corner(btn, 6)
+
+	track(btn.MouseButton1Click:Connect(function() callback(box.Text) end))
+	return box
+end
+
+------------------------------------------------------------------------
+-- animation player (roblox animation ids)
+------------------------------------------------------------------------
+local function normalizeId(raw)
+	local digits = string.match(tostring(raw), "%d+")
+	if not digits then return nil end
+	return "rbxassetid://" .. digits
+end
+
+stopAnim = function()
+	local t = state.track
+	state.track = nil
+	if t then
+		pcall(function() t:Stop(0.2) end)
+		pcall(function() t:Destroy() end)
+	end
+end
+
+playAnim = function(id)
+	if not state.active or not state.rigHum then
+		setStatus("start reanimate first", "bad")
+		return
+	end
+	local assetId = normalizeId(id)
+	if not assetId then
+		setStatus("bad animation id", "bad")
+		return
+	end
+	stopCustom()
+	stopAnim()
+
+	local animator = state.rigHum:FindFirstChildOfClass("Animator")
+	if not animator then
+		animator = Instance.new("Animator")
+		animator.Parent = state.rigHum
+	end
+	local anim = Instance.new("Animation")
+	anim.AnimationId = assetId
+	local ok, t = pcall(function() return animator:LoadAnimation(anim) end)
+	if not ok or not t then
+		setStatus("animation failed to load", "bad")
+		return
+	end
+	t.Priority = Enum.AnimationPriority.Action4
+	t.Looped = cfg.Loop
+	t:Play(0.2, 1, cfg.AnimSpeed)
+	state.track = t
+	setStatus("playing " .. assetId, "good")
+end
+
+------------------------------------------------------------------------
+-- editor engine: poses, sampling, playback, audio
+------------------------------------------------------------------------
+local function rad(d) return math.rad(d) end
+
+local EASE = {
+	Linear = function(a) return a end,
+	Smooth = function(a) return a * a * (3 - 2 * a) end,
+	Hold = function() return 0 end,
+}
+local EASES = { Smooth = true, Linear = true, Hold = true }
+
+local function clean(s, n)
+	s = tostring(s or "")
+	s = s:gsub("%c", "")
+	return s:sub(1, n)
+end
+
+-- one keyframe -> a joint transform
+local function kfCF(k)
+	return CFrame.new(k.px, k.py, k.pz) * CFrame.fromEulerAnglesXYZ(rad(k.rx), rad(k.ry), rad(k.rz))
+end
+
+local function sampleTrack(anim, key, t)
+	local kfs = anim.tracks[key]
+	local n = kfs and #kfs or 0
+	if n == 0 then return CFrame.identity end
+	if n == 1 or t <= kfs[1].t then return kfCF(kfs[1]) end
+	for i = 1, n - 1 do
+		local k0, k1 = kfs[i], kfs[i + 1]
+		if t >= k0.t and t < k1.t then
+			local span = k1.t - k0.t
+			local a = span > 0 and (t - k0.t) / span or 1
+			return kfCF(k0):Lerp(kfCF(k1), (EASE[k0.ease] or EASE.Smooth)(a))
+		end
+	end
+	local last = kfs[n]
+	if anim.loop and anim.length > last.t then
+		local a = math.clamp((t - last.t) / (anim.length - last.t), 0, 1)
+		return kfCF(last):Lerp(kfCF(kfs[1]), (EASE[last.ease] or EASE.Smooth)(a))
+	end
+	return kfCF(last)
+end
+
+local function sampleAll(anim, t)
+	local out = {}
+	for _, j in ipairs(JOINT_ORDER) do
+		out[j[1]] = sampleTrack(anim, j[1], t)
+	end
+	return out
+end
+
+local function applyTransformsToRig(rig, tbl)
+	for _, def in ipairs(R6_JOINTS) do
+		local part = rig:FindFirstChild(def[1])
+		local m = part and part:FindFirstChild(def[3])
+		local tr = tbl[JOINTKEY[def[3]]]
+		if m and m:IsA("Motor6D") and tr then m.Transform = tr end
+	end
+end
+
+local function newTracks()
+	return { Root = {}, Neck = {}, LS = {}, RS = {}, LH = {}, RH = {} }
+end
+
+local function newAnim()
+	return {
+		name = "my dance",
+		author = LocalPlayer.Name,
+		authorId = LocalPlayer.UserId,
+		length = 4,
+		loop = true,
+		tracks = newTracks(),
+		events = {},
+		sound = { kind = "none", ref = "", volume = 1, offset = 0 },
+		version = 2,
+	}
+end
+editor.anim = newAnim()
+
+local function hasKeys(anim)
+	for _, j in ipairs(JOINT_ORDER) do
+		if #anim.tracks[j[1]] > 0 then return true end
+	end
+	return false
+end
+
+-- validates anything that came from a file, paste or download. data only.
+local function sanitizeAnim(raw)
+	if type(raw) ~= "table" then return nil, "not an animation" end
+	if type(raw.tracks) ~= "table" then return nil, "no tracks (old format?)" end
+
+	local function num(v, lo, hi)
+		v = tonumber(v) or 0
+		if v ~= v then v = 0 end
+		return math.clamp(v, lo, hi)
+	end
+
+	local anim = {
+		name = clean(raw.name, 40),
+		author = clean(raw.author, 30),
+		authorId = tonumber(raw.authorId) or 0,
+		length = math.clamp(tonumber(raw.length) or 4, 0.2, 60),
+		loop = raw.loop == true,
+		tracks = newTracks(),
+		events = {},
+		sound = { kind = "none", ref = "", volume = 1, offset = 0 },
+		version = 2,
+	}
+	if anim.name == "" then anim.name = "untitled" end
+
+	if type(raw.sound) == "table" then
+		local kind, ref = raw.sound.kind, tostring(raw.sound.ref or "")
+		if kind == "id" then
+			local d = ref:match("^%d+$")
+			if d and #d <= 20 then anim.sound.kind, anim.sound.ref = "id", d end
+		elseif kind == "file" then
+			if ref:match("^[%w_%-%. ]+$") and not ref:find("%.%.") and #ref <= 60 then
+				anim.sound.kind, anim.sound.ref = "file", ref
+			end
+		end
+		anim.sound.volume = num(raw.sound.volume, 0, 1)
+		anim.sound.offset = num(raw.sound.offset, 0, 600)
+	end
+
+	for key, list in pairs(anim.tracks) do
+		local src = raw.tracks[key]
+		if type(src) == "table" then
+			for i, k in ipairs(src) do
+				if i > 300 then break end
+				if type(k) == "table" then
+					table.insert(list, {
+						t = num(k.t, 0, anim.length),
+						ease = EASES[k.ease] and k.ease or "Smooth",
+						rx = num(k.rx, -360, 360), ry = num(k.ry, -360, 360), rz = num(k.rz, -360, 360),
+						px = num(k.px, -20, 20), py = num(k.py, -20, 20), pz = num(k.pz, -20, 20),
+					})
+				end
+			end
+			table.sort(list, function(a, b) return a.t < b.t end)
+		end
+	end
+
+	if type(raw.events) == "table" then
+		for i, e in ipairs(raw.events) do
+			if i > 200 then break end
+			if type(e) == "table" and FX_KINDS[e.kind] then
+				table.insert(anim.events, {
+					t = num(e.t, 0, anim.length),
+					kind = e.kind,
+					col = FX_COLOR_OK[e.col] and e.col or "white",
+				})
+			end
+		end
+		table.sort(anim.events, function(a, b) return a.t < b.t end)
+	end
+	return anim
+end
+
+-- audio (client side only: only you hear it)
+local audio = { sound = nil }
+
+local function stopSound()
+	if audio.sound then
+		pcall(function() audio.sound:Stop() end)
+		pcall(function() audio.sound:Destroy() end)
+		audio.sound = nil
+	end
+end
+
+local function resolveSoundId(snd)
+	if snd.kind == "id" then
+		return "rbxassetid://" .. snd.ref
+	end
+	if snd.kind == "file" then
+		local fn = getcustomasset or getsynasset
+		if hasFS and fn then
+			local path = ROOT .. "/music/" .. snd.ref
+			local ok, exists = pcall(isfile, path)
+			if ok and exists then
+				local ok2, id = pcall(fn, path)
+				if ok2 and id then return id end
+			end
+		end
+	end
+	return nil
+end
+
+local function startSound(anim)
+	stopSound()
+	local snd = anim.sound
+	if not snd or snd.kind == "none" then return end
+	local id = resolveSoundId(snd)
+	if not id then
+		setStatus("sound not found or not allowed", "bad")
+		return
+	end
+	local s = Instance.new("Sound")
+	s.SoundId = id
+	s.Volume = snd.volume
+	s.Looped = false
+	s.Parent = gui
+	s:Play()
+	pcall(function() s.TimePosition = snd.offset end)
+	audio.sound = s
+end
+
+local function restartSound(anim)
+	if audio.sound and anim.sound then
+		pcall(function()
+			audio.sound.TimePosition = anim.sound.offset
+			audio.sound:Play()
+		end)
+	end
+end
+
+local function customApply()
+	local rig = state.rig
+	if not rig or not state.active then return end
+	local c = state.custom
+	if c.playing and c.anim then
+		applyTransformsToRig(rig, sampleAll(c.anim, c.t))
+	elseif editor.live then
+		applyTransformsToRig(rig, sampleAll(editor.anim, editor.time))
+	end
+end
+
+stopCustom = function()
+	local c = state.custom
+	if not c.playing then return end
+	c.playing = false
+	c.anim = nil
+	stopSound()
+	state.locoCur = nil
+end
+
+local function startCustom(anim)
+	if not state.active or not state.rigHum or not state.rig then
+		setStatus("start reanimate first", "bad")
+		return
+	end
+	if state.rigHum.RigType ~= Enum.HumanoidRigType.R6 then
+		setStatus("editor playback needs an r6 body (use limb mode)", "bad")
+		return
+	end
+	if not hasKeys(anim) then
+		setStatus("add at least one keyframe", "bad")
+		return
+	end
+	stopAnim()
+	for _, t in pairs(state.loco) do pcall(function() t:Stop(0.1) end) end
+	state.locoCur = nil
+	local c = state.custom
+	c.anim = anim
+	c.t = (anim == editor.anim and editor.time < anim.length - 0.05) and editor.time or 0
+	c.speed = cfg.PreviewSpeed
+	c.playing = true
+	startSound(anim)
+	setStatus("playing " .. anim.name, "good")
+end
+
+local function customAdvance(dt)
+	local c = state.custom
+	if not c.playing or not c.anim then return end
+	local prev = c.t
+	c.t += dt * c.speed
+	local len = c.anim.length
+	if c.t >= len then
+		if fx.fireRange then fx.fireRange(c.anim, prev, len) end
+		if c.anim.loop then
+			c.t -= len
+			restartSound(c.anim)
+			if fx.fireRange then fx.fireRange(c.anim, -0.001, c.t) end
+		else
+			stopCustom()
+			setStatus("animation finished", "sub")
+			return
+		end
+	elseif fx.fireRange then
+		fx.fireRange(c.anim, prev, c.t)
+	end
+	if c.anim == editor.anim then
+		editor.time = c.t
+		if tl.onTime then tl.onTime(true) end
+	end
+end
+
+local function stopOnMoveCheck()
+	if not cfg.StopOnMove or state.fxActive or not state.rigHum then return end
+	if state.rigHum.MoveDirection.Magnitude <= 0.1 then return end
+	if state.track then stopAnim() end
+	if state.custom.playing then
+		stopCustom()
+		setStatus("stopped (you moved)", "sub")
+	end
+end
+
+local function updateLoco()
+	if state.kind ~= "limb" or not state.rigHum then return end
+	if state.track or state.custom.playing then return end
+	local hum = state.rigHum
+	local want = "idle"
+	if hum.FloorMaterial == Enum.Material.Air then
+		want = "fall"
+	elseif hum.MoveDirection.Magnitude > 0.1 then
+		want = "walk"
+	end
+	if state.locoCur == want then return end
+	local old = state.locoCur and state.loco[state.locoCur]
+	if old then pcall(function() old:Stop(0.15) end) end
+	local new = state.loco[want]
+	if new then pcall(function() new:Play(0.15) end) end
+	state.locoCur = want
+end
+
+local function applyEffects(dt)
+	if not state.active then return end
+	local rig = state.rig
+	local root = rig and rig:FindFirstChild("HumanoidRootPart")
+	if not root then return end
+
+	local any = cfg.Spin or cfg.Bob or cfg.Float or cfg.Sway
+	if any then
+		if not state.fxActive then
+			state.fxActive = true
+			state.base = root.Position
+			local _, yaw = root.CFrame:ToOrientation()
+			state.yaw = yaw
+			root.Anchored = true
+		end
+		state.t += dt * cfg.FxSpeed
+		if cfg.Spin then state.yaw += dt * cfg.SpinSpeed end
+		local y = 0
+		if cfg.Float then y += 4 + math.sin(state.t * 1.5) * 0.6 end
+		if cfg.Bob then y += math.abs(math.sin(state.t * 6)) * 1.5 end
+		local roll = cfg.Sway and math.sin(state.t * 4) * 0.3 or 0
+		root.CFrame = CFrame.new(state.base + Vector3.new(0, y, 0))
+			* CFrame.Angles(0, state.yaw, 0)
+			* CFrame.Angles(0, 0, roll)
+	elseif state.fxActive then
+		state.fxActive = false
+		root.Anchored = false
+	end
+end
+
+------------------------------------------------------------------------
+-- clone mode
+------------------------------------------------------------------------
+local function buildMap(real, rig)
+	local map = {}
+	for _, d in ipairs(real:GetChildren()) do
+		if d:IsA("BasePart") then
+			local c = rig:FindFirstChild(d.Name)
+			if c and c:IsA("BasePart") then map[d] = c end
+		end
+	end
+	local realAcc, rigAcc = {}, {}
+	for _, c in ipairs(real:GetChildren()) do
+		if c:IsA("Accessory") then table.insert(realAcc, c) end
+	end
+	for _, c in ipairs(rig:GetChildren()) do
+		if c:IsA("Accessory") then table.insert(rigAcc, c) end
+	end
+	for i, acc in ipairs(realAcc) do
+		local other = rigAcc[i]
+		local h = acc:FindFirstChild("Handle")
+		local rh = other and other:FindFirstChild("Handle")
+		if h and rh and h:IsA("BasePart") and rh:IsA("BasePart") then map[h] = rh end
+	end
+	return map
+end
+
+local function syncParts()
+	local rig = state.rig
+	if not rig or not rig.Parent then
+		stopClone(true)
+		return
+	end
+	local vel = Vector3.new(0, 25.05, 0)
+	for real, target in pairs(state.map) do
+		if real.Parent and target.Parent then
+			real.CanCollide = false
+			real.CFrame = target.CFrame
+			real.AssemblyLinearVelocity = vel
+			real.AssemblyAngularVelocity = Vector3.zero
+		end
+	end
+	if cfg.NoDrift and not state.fxActive and state.rigHum then
+		local puppetRoot = rig:FindFirstChild("HumanoidRootPart")
+		if puppetRoot and state.rigHum.MoveDirection.Magnitude < 0.1
+			and state.rigHum.FloorMaterial ~= Enum.Material.Air then
+			local v = puppetRoot.AssemblyLinearVelocity
+			puppetRoot.AssemblyLinearVelocity = Vector3.new(0, v.Y, 0)
+		end
+	end
+end
+
+applyVisibility = function()
+	if state.kind == "limb" then
+		local L = state.limb
+		if L then
+			for _, p in pairs(L.parts) do
+				if p.Parent then p.Transparency = (cfg.ShowReal or editor.live) and 0.7 or 1 end
+			end
+		end
+		return
+	end
+	for real, target in pairs(state.map) do
+		if real.Parent then
+			real.Transparency = cfg.ShowReal and (state.origReal[real] or 0) or 1
+		end
+		if target.Parent then
+			local o = state.origRig[target] or 0
+			target.Transparency = (cfg.ShowReal and o < 1) and 0.75 or o
+		end
+	end
+end
+
+startClone = function()
+	if state.active or state.starting then
+		setStatus("already running", "sub")
+		return
+	end
+	local char = LocalPlayer.Character
+	local hum = char and char:FindFirstChildOfClass("Humanoid")
+	local root = char and char:FindFirstChild("HumanoidRootPart")
+	if not (char and hum and root and hum.Health > 0) then
+		setStatus("no character found", "bad")
+		return
+	end
+
+	pcall(function() sethiddenproperty(LocalPlayer, "SimulationRadius", math.huge) end)
+	pcall(function() LocalPlayer.MaximumSimulationRadius = math.huge end)
+
+	char.Archivable = true
+	local rig = char:Clone()
+	if not rig then
+		setStatus("clone failed", "bad")
+		return
+	end
+	local rigHum = rig:FindFirstChildOfClass("Humanoid")
+	if not rigHum then
+		rig:Destroy()
+		setStatus("clone has no humanoid", "bad")
+		return
+	end
+	rig.Parent = Workspace
+	local map = buildMap(char, rig)
+
+	pcall(function()
+		hum.RequiresNeck = false
+		hum.BreakJointsOnDeath = false
+		hum.PlatformStand = true
+		hum:SetStateEnabled(Enum.HumanoidStateType.Dead, false)
+		hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
+		hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
+	end)
+	pcall(function() hum.EvaluateStateMachine = false end)
+
+	local origReal, origRig = {}, {}
+	for _, d in ipairs(rig:GetDescendants()) do
+		if d:IsA("BasePart") then origRig[d] = d.Transparency end
+	end
+	for _, d in ipairs(char:GetDescendants()) do
+		if d:IsA("JointInstance") or d:IsA("WeldConstraint") then
+			d:Destroy()
+		elseif d:IsA("BasePart") then
+			origReal[d] = d.Transparency
+			d.CanCollide = false
+			d.Transparency = 1
+		end
+	end
+
+	state.kind = "clone"
+	state.real, state.realHum, state.realRoot = char, hum, root
+	state.rig, state.rigHum = rig, rigHum
+	state.map = map
+	state.origReal, state.origRig = origReal, origRig
+	state.fxActive = false
+	state.t = 0
+	state.active = true
+	applyVisibility()
+
+	LocalPlayer.Character = rig
+	local camera = Workspace.CurrentCamera
+	if camera then camera.CameraSubject = rigHum end
+
+	table.insert(syncConns, RunService.Stepped:Connect(syncParts))
+	table.insert(syncConns, PreSim:Connect(customApply))
+	table.insert(syncConns, RunService.Heartbeat:Connect(function()
+		syncParts()
+		stopOnMoveCheck()
+	end))
+	table.insert(syncConns, RunService.RenderStepped:Connect(function(dt)
+		customAdvance(dt)
+		customApply()
+		applyEffects(dt)
+	end))
+	table.insert(syncConns, LocalPlayer.CharacterAdded:Connect(function(c)
+		if state.active and c ~= state.rig then stopClone(false) end
+	end))
+	setStatus("clone mode running. pick a dance.", "good")
+end
+
+stopClone = function(kill)
+	if not state.active or state.kind ~= "clone" then return end
+	state.active = false
+	for _, c in ipairs(syncConns) do pcall(function() c:Disconnect() end) end
+	syncConns = {}
+	stopAnim()
+	stopCustom()
+
+	local real, realHum, rig = state.real, state.realHum, state.rig
+	pcall(function() LocalPlayer.Character = real end)
+	pcall(function() if rig then rig:Destroy() end end)
+	if kill then
+		pcall(function()
+			if realHum then
+				realHum.EvaluateStateMachine = true
+				realHum:SetStateEnabled(Enum.HumanoidStateType.Dead, true)
+				realHum.Health = 0
+			end
+		end)
+		pcall(function() if real then real:BreakJoints() end end)
+	end
+	state.real, state.realHum, state.realRoot, state.rig, state.rigHum = nil, nil, nil, nil, nil
+	state.map = {}
+	state.origReal, state.origRig = {}, {}
+	state.fxActive = false
+	setStatus("stopped. respawning.", "sub")
+end
+
+------------------------------------------------------------------------
+-- limb mode
+------------------------------------------------------------------------
+local function buildPuppet(cf)
+	local model = Instance.new("Model")
+	model.Name = "MilkPuppet"
+
+	local hum = Instance.new("Humanoid")
+	hum.Name = "Humanoid"
+	hum.RequiresNeck = false
+	hum.BreakJointsOnDeath = false
+	hum.HipHeight = 0
+	hum.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
+	hum.MaxHealth = 100
+	hum.Health = 100
+	hum:SetStateEnabled(Enum.HumanoidStateType.Dead, false)
+	hum.Parent = model
+
+	local animator = Instance.new("Animator")
+	animator.Parent = hum
+
+	local parts = {}
+	for name, size in pairs(PUPPET_DIMS) do
+		local p = Instance.new("Part")
+		p.Name = name
+		p.Size = size
+		p.Transparency = 1
+		p.Anchored = false
+		p.CanCollide = (name == "HumanoidRootPart")
+		p.CastShadow = false
+		p.TopSurface = Enum.SurfaceType.Smooth
+		p.BottomSurface = Enum.SurfaceType.Smooth
+		p.CFrame = cf * PUPPET_OFFSETS[name]
+		p.Parent = model
+		parts[name] = p
+	end
+	for _, def in ipairs(R6_JOINTS) do
+		local motor = Instance.new("Motor6D")
+		motor.Name = def[3]
+		motor.Part0 = parts[def[1]]
+		motor.Part1 = parts[def[2]]
+		motor.C0 = def[4]
+		motor.C1 = def[5]
+		motor.Parent = parts[def[1]]
+	end
+	model.PrimaryPart = parts.HumanoidRootPart
+	return model, parts, hum
+end
+
+local function setMotorTransform(motor, transform)
+	motor.MaxVelocity = 9e9
+	local _, _, angle = transform:ToEulerAngles(Enum.RotationOrder.ZYX)
+	pcall(function() motor:SetDesiredAngle(angle) end)
+	local axis, rot = transform:ToAxisAngle()
+	pcall(sethiddenproperty, motor, "ReplicateCurrentOffset6D", transform.Position)
+	pcall(sethiddenproperty, motor, "ReplicateCurrentAngle6D", axis * rot)
+end
+
+local function setMotorOffset(motor, offset)
+	setMotorTransform(motor, motor.C0:Inverse() * offset * motor.C1)
+end
+
+local function limbStep()
+	local L = state.limb
+	local puppet = state.rig
+	if not (L and puppet and puppet.Parent) then
+		stopLimb(true)
+		return
+	end
+	local char, hum, root = L.char, L.hum, L.root
+	if not (char.Parent and hum.Parent and root.Parent) then
+		stopLimb(false)
+		return
+	end
+
+	local pr = L.parts.HumanoidRootPart
+	if cfg.ParkMode == "Void" then
+		root.CFrame = CFrame.new(L.voidPos)
+	else
+		root.CFrame = pr.CFrame * CFrame.new(0, -16, 0)
+	end
+	root.AssemblyLinearVelocity = Vector3.zero
+	root.AssemblyAngularVelocity = Vector3.zero
+
+	hum.AutoRotate = false
+	pcall(function() hum:ChangeState(Enum.HumanoidStateType.Freefall) end)
+	for _, p in ipairs(L.baseParts) do
+		if p.Parent then p.CanCollide = false end
+	end
+	for _, j in ipairs(L.joints) do
+		if j.motor.Parent then
+			local p0 = j.isRoot and root or L.parts[j.p0]
+			local p1 = L.parts[j.p1]
+			setMotorOffset(j.motor, p0.CFrame:ToObjectSpace(p1.CFrame))
+		end
+	end
+end
+
+local function frameStep()
+	customApply()
+	limbStep()
+end
+
+startLimb = function()
+	if state.active or state.starting then
+		setStatus("already running", "sub")
+		return
+	end
+	local char = LocalPlayer.Character
+	local hum = char and char:FindFirstChildOfClass("Humanoid")
+	local root = char and char:FindFirstChild("HumanoidRootPart")
+	if not (char and hum and root and hum.Health > 0) then
+		setStatus("no character found", "bad")
+		return
+	end
+	if hum.RigType ~= Enum.HumanoidRigType.R6 then
+		setStatus("limb mode needs an r6 body", "bad")
+		return
+	end
+
+	state.starting = true
+	local spawnCF = root.CFrame
+	setStatus("killing body. waiting for respawn...", "sub")
+
+	task.spawn(function()
+		pcall(function()
+			hum:SetStateEnabled(Enum.HumanoidStateType.Dead, true)
+			hum.Health = 0
+		end)
+
+		local newChar, newHum, newRoot
+		local t0 = os.clock()
+		while os.clock() - t0 < 15 do
+			local c = LocalPlayer.Character
+			if c and c ~= char then
+				local h = c:FindFirstChildOfClass("Humanoid")
+				local r = c:FindFirstChild("HumanoidRootPart")
+				if h and r and c:FindFirstChild("Torso") and h.Health > 0 then
+					newChar, newHum, newRoot = c, h, r
+					break
+				end
+			end
+			task.wait()
+		end
+		if not newChar then
+			state.starting = false
+			setStatus("no respawn. try again.", "bad")
+			return
+		end
+		task.wait(0.2)
+		if newHum.RigType ~= Enum.HumanoidRigType.R6 then
+			state.starting = false
+			setStatus("respawned body is not r6", "bad")
+			return
+		end
+
+		pcall(function() sethiddenproperty(LocalPlayer, "SimulationRadius", math.huge) end)
+		pcall(function() LocalPlayer.MaximumSimulationRadius = math.huge end)
+
+		for _, d in ipairs(newChar:GetDescendants()) do
+			if d:IsA("Animator") then d:Destroy() end
+		end
+		local animate = newChar:FindFirstChild("Animate")
+		if animate then animate:Destroy() end
+
+		local joints = {}
+		for _, def in ipairs(R6_JOINTS) do
+			local parent = newChar:FindFirstChild(def[1])
+			local motor = parent and parent:FindFirstChild(def[3])
+			if motor and motor:IsA("Motor6D") then
+				table.insert(joints, { motor = motor, p0 = def[1], p1 = def[2], isRoot = def[3] == "RootJoint" })
+			end
+		end
+		if #joints < #R6_JOINTS then
+			state.starting = false
+			setStatus("body is missing joints", "bad")
+			return
+		end
+
+		local baseParts = {}
+		for _, d in ipairs(newChar:GetDescendants()) do
+			if d:IsA("BasePart") and not d:FindFirstAncestorWhichIsA("Tool") then
+				table.insert(baseParts, d)
+			end
+		end
+
+		local puppet, parts, puppetHum = buildPuppet(spawnCF)
+		puppet.Parent = Workspace
+
+		local voidPos = Vector3.new(
+			math.random(-65536, 65536), math.random(-70000, -60000), math.random(-65536, 65536))
+		if cfg.ParkMode == "Void" then
+			pcall(function() Workspace.FallenPartsDestroyHeight = 0 / 0 end)
+		end
+
+		local loco = {}
+		local animator = puppetHum:FindFirstChildOfClass("Animator")
+		if animator then
+			for name, id in pairs(LOCO_IDS) do
+				local a = Instance.new("Animation")
+				a.AnimationId = "rbxassetid://" .. id
+				local ok, t = pcall(function() return animator:LoadAnimation(a) end)
+				if ok and t then
+					t.Looped = true
+					t.Priority = (name == "idle") and Enum.AnimationPriority.Idle
+						or Enum.AnimationPriority.Movement
+					loco[name] = t
+				end
+			end
+		end
+
+		state.kind = "limb"
+		state.real, state.realHum, state.realRoot = newChar, newHum, newRoot
+		state.rig, state.rigHum = puppet, puppetHum
+		state.limb = {
+			char = newChar, hum = newHum, root = newRoot,
+			parts = parts, joints = joints, baseParts = baseParts, voidPos = voidPos,
+		}
+		state.loco = loco
+		state.locoCur = nil
+		state.fxActive = false
+		state.t = 0
+		state.active = true
+		state.starting = false
+		applyVisibility()
+
+		LocalPlayer.Character = puppet
+		local camera = Workspace.CurrentCamera
+		if camera then camera.CameraSubject = puppetHum end
+
+		table.insert(syncConns, newChar.DescendantAdded:Connect(function(d)
+			if d:IsA("Animator") then
+				task.defer(function() pcall(function() d:Destroy() end) end)
+			end
+		end))
+		table.insert(syncConns, PreSim:Connect(frameStep))
+		table.insert(syncConns, RunService.Heartbeat:Connect(function()
+			frameStep()
+			stopOnMoveCheck()
+			updateLoco()
+		end))
+		table.insert(syncConns, RunService.RenderStepped:Connect(function(dt)
+			customAdvance(dt)
+			frameStep()
+			applyEffects(dt)
+		end))
+		table.insert(syncConns, newHum.Died:Connect(function() stopLimb(false) end))
+		table.insert(syncConns, LocalPlayer.CharacterAdded:Connect(function(c)
+			if state.active and c ~= state.rig then stopLimb(false) end
+		end))
+		setStatus("limb mode running. pick a dance.", "good")
+	end)
+end
+
+stopLimb = function(kill)
+	if not state.active or state.kind ~= "limb" then return end
+	state.active = false
+	for _, c in ipairs(syncConns) do pcall(function() c:Disconnect() end) end
+	syncConns = {}
+	stopAnim()
+	stopCustom()
+	for _, t in pairs(state.loco) do pcall(function() t:Stop(0) end) end
+	state.loco = {}
+	state.locoCur = nil
+
+	local L, rig = state.limb, state.rig
+	pcall(function() Workspace.FallenPartsDestroyHeight = origFPDH end)
+	pcall(function() if L then LocalPlayer.Character = L.char end end)
+	pcall(function() if rig then rig:Destroy() end end)
+	if kill and L then
+		pcall(function() L.hum.Health = 0 end)
+		pcall(function() L.char:BreakJoints() end)
+	end
+	state.real, state.realHum, state.realRoot, state.rig, state.rigHum = nil, nil, nil, nil, nil
+	state.limb = nil
+	state.fxActive = false
+	setStatus("stopped. respawning.", "sub")
+end
+
+startReanimate = function()
+	if cfg.Mode == "Limb" then startLimb() else startClone() end
+end
+
+stopReanimate = function(kill)
+	if state.kind == "limb" then stopLimb(kill) else stopClone(kill) end
+end
+
+------------------------------------------------------------------------
+-- editor actions
+------------------------------------------------------------------------
+function ed.refresh()
+	for _, f in ipairs(editor.refreshers) do pcall(f) end
+end
+
+function ed.copyTracks(tracks)
+	local out = {}
+	for key, list in pairs(tracks) do
+		local copy = {}
+		for i, k in ipairs(list) do
+			copy[i] = { t = k.t, ease = k.ease, rx = k.rx, ry = k.ry, rz = k.rz, px = k.px, py = k.py, pz = k.pz }
+		end
+		out[key] = copy
+	end
+	return out
+end
+
+function ed.snapshot()
+	local events = {}
+	for i, e in ipairs(editor.anim.events) do
+		events[i] = { t = e.t, kind = e.kind, col = e.col }
+	end
+	return { tracks = ed.copyTracks(editor.anim.tracks), events = events }
+end
+
+function ed.pushUndo()
+	table.insert(editor.undo, ed.snapshot())
+	if #editor.undo > 40 then table.remove(editor.undo, 1) end
+	editor.lastUndo = os.clock()
+end
+
+function ed.maybeUndo()
+	if os.clock() - editor.lastUndo > 0.8 then ed.pushUndo() end
+end
+
+function ed.currentCF(key)
+	return sampleTrack(editor.anim, key, editor.time)
+end
+
+function ed.getMotor(rig, key)
+	local def = DEF_BY_KEY[key]
+	if not def or not rig then return nil end
+	local part = rig:FindFirstChild(def[1])
+	local m = part and part:FindFirstChild(def[3])
+	if m and m:IsA("Motor6D") then return m end
+	return nil
+end
+
+-- writes (or updates) a keyframe on one joint's track at time t
+function ed.setKeyCF(key, t, cf)
+	local list = editor.anim.tracks[key]
+	local created = false
+	if #list == 0 and t > 0.001 then
+		table.insert(list, { t = 0, ease = cfg.Ease, rx = 0, ry = 0, rz = 0, px = 0, py = 0, pz = 0 })
+		created = true
+	end
+	local rx, ry, rz = cf:ToEulerAnglesXYZ()
+	local p = cf.Position
+	local target
+	for _, k in ipairs(list) do
+		if math.abs(k.t - t) < 0.02 then
+			target = k
+			break
+		end
+	end
+	if not target then
+		target = { t = t, ease = cfg.Ease }
+		table.insert(list, target)
+		table.sort(list, function(a, b) return a.t < b.t end)
+		created = true
+	end
+	target.rx, target.ry, target.rz = math.deg(rx), math.deg(ry), math.deg(rz)
+	target.px, target.py, target.pz = p.X, p.Y, p.Z
+	editor.selKey = { joint = key, k = target }
+	editor.selEvent = nil
+	if created and tl.rebuildKeys then tl.rebuildKeys() end
+	return target
+end
+
+function ed.setTime(t)
+	editor.time = math.clamp(t, 0, editor.anim.length)
+	if tl.onTime then tl.onTime() end
+end
+
+function ed.selectJoint(key)
+	editor.selJoint = key
+	if editor.selKey and editor.selKey.joint ~= key then editor.selKey = nil end
+	if key then editor.selEvent = nil end
+	if tl.paintLabels then tl.paintLabels() end
+	if tl.rebuildKeys then tl.rebuildKeys() end
+	ed.refresh()
+end
+
+function ed.jumpKey(dir)
+	local times, seen = {}, {}
+	for _, j in ipairs(JOINT_ORDER) do
+		for _, k in ipairs(editor.anim.tracks[j[1]]) do
+			local r = math.floor(k.t * 100 + 0.5)
+			if not seen[r] then
+				seen[r] = true
+				table.insert(times, k.t)
+			end
+		end
+	end
+	table.sort(times)
+	if #times == 0 then return end
+	local cur = editor.time
+	if dir > 0 then
+		for _, t in ipairs(times) do
+			if t > cur + 0.01 then
+				ed.setTime(t)
+				return
+			end
+		end
+	else
+		for i = #times, 1, -1 do
+			if times[i] < cur - 0.01 then
+				ed.setTime(times[i])
+				return
+			end
+		end
+	end
+end
+
+function ed.keySelected()
+	if not editor.selJoint then
+		setStatus("select a body part first", "bad")
+		return
+	end
+	ed.pushUndo()
+	ed.setKeyCF(editor.selJoint, editor.time, ed.currentCF(editor.selJoint))
+	tl.rebuildKeys()
+	ed.refresh()
+	setStatus("key set on " .. JOINT_LABEL[editor.selJoint], "good")
+end
+
+function ed.keyAll()
+	ed.pushUndo()
+	local cfs = {}
+	for _, j in ipairs(JOINT_ORDER) do cfs[j[1]] = ed.currentCF(j[1]) end
+	for _, j in ipairs(JOINT_ORDER) do ed.setKeyCF(j[1], editor.time, cfs[j[1]]) end
+	editor.selKey = nil
+	tl.rebuildKeys()
+	ed.refresh()
+	setStatus("keyed every part at " .. string.format("%.2f", editor.time) .. "s", "good")
+end
+
+function ed.addEvent()
+	ed.pushUndo()
+	local e = { t = editor.time, kind = cfg.FxEvent, col = cfg.FxColor }
+	table.insert(editor.anim.events, e)
+	table.sort(editor.anim.events, function(a, b) return a.t < b.t end)
+	editor.selEvent = e
+	editor.selKey = nil
+	tl.rebuildKeys()
+	ed.refresh()
+	setStatus("fx event added: " .. e.kind, "good")
+end
+
+function ed.deleteKey()
+	if editor.selEvent then
+		ed.pushUndo()
+		local i = table.find(editor.anim.events, editor.selEvent)
+		if i then table.remove(editor.anim.events, i) end
+		editor.selEvent = nil
+		tl.rebuildKeys()
+		ed.refresh()
+		setStatus("event deleted", "sub")
+		return
+	end
+	local s = editor.selKey
+	if not s then
+		setStatus("select a keyframe or event first", "bad")
+		return
+	end
+	ed.pushUndo()
+	local list = editor.anim.tracks[s.joint]
+	local i = table.find(list, s.k)
+	if i then table.remove(list, i) end
+	editor.selKey = nil
+	tl.rebuildKeys()
+	ed.refresh()
+	setStatus("keyframe deleted", "sub")
+end
+
+function ed.clearTrack()
+	if not editor.selJoint then
+		setStatus("select a body part first", "bad")
+		return
+	end
+	ed.pushUndo()
+	editor.anim.tracks[editor.selJoint] = {}
+	editor.selKey = nil
+	tl.rebuildKeys()
+	ed.refresh()
+	setStatus("cleared " .. JOINT_LABEL[editor.selJoint], "sub")
+end
+
+function ed.undo()
+	local snap = table.remove(editor.undo)
+	if not snap then
+		setStatus("nothing to undo", "sub")
+		return
+	end
+	editor.anim.tracks = snap.tracks
+	editor.anim.events = snap.events
+	editor.selKey = nil
+	editor.selEvent = nil
+	tl.rebuildKeys()
+	ed.refresh()
+	setStatus("undone", "sub")
+end
+
+-- copy one side to the other. mirrored rotation = same x, negated y and z
+function ed.mirror(fromKeys, toKeys)
+	ed.pushUndo()
+	for i, from in ipairs(fromKeys) do
+		local dst = {}
+		for _, k in ipairs(editor.anim.tracks[from]) do
+			table.insert(dst, { t = k.t, ease = k.ease, rx = k.rx, ry = -k.ry, rz = -k.rz, px = 0, py = 0, pz = 0 })
+		end
+		editor.anim.tracks[toKeys[i]] = dst
+	end
+	editor.selKey = nil
+	tl.rebuildKeys()
+	ed.refresh()
+	setStatus("mirrored arms and legs", "sub")
+end
+
+local function loadIntoEditor(anim)
+	editor.anim = anim
+	editor.selKey = nil
+	editor.selEvent = nil
+	editor.undo = {}
+	editor.time = 0
+	if tl.rebuild then tl.rebuild() end
+	ed.refresh()
+end
+
+function ed.listLocal()
+	local names = {}
+	if hasFS then
+		ensureFolders()
+		local ok, files = pcall(listfiles, ROOT .. "/anims")
+		if ok and type(files) == "table" then
+			for _, p in ipairs(files) do
+				local n = tostring(p):match("([^/\\]+)%.json$")
+				if n then table.insert(names, n) end
+			end
+		end
+	end
+	table.sort(names)
+	return names
+end
+
+local function refreshLocal()
+	editor.localNames = ed.listLocal()
+	if not table.find(editor.localNames, editor.localSel) then
+		editor.localSel = editor.localNames[1]
+	end
+	ed.refresh()
+end
+
+function ed.saveAnim()
+	if not hasFS then
+		setStatus("this executor has no file functions", "bad")
+		return
+	end
+	ensureFolders()
+	local c = sanitizeAnim(editor.anim)
+	if not c then
+		setStatus("could not save", "bad")
+		return
+	end
+	local name = safeName(c.name)
+	local ok = pcall(writefile, ROOT .. "/anims/" .. name .. ".json", HttpService:JSONEncode(c))
+	if ok then
+		editor.localSel = name
+		refreshLocal()
+		setStatus("saved " .. name .. ".json", "good")
+	else
+		setStatus("save failed", "bad")
+	end
+end
+
+function ed.loadSelected()
+	if not hasFS or not editor.localSel then
+		setStatus("nothing to load", "bad")
+		return
+	end
+	local ok, data = pcall(function()
+		return HttpService:JSONDecode(readfile(ROOT .. "/anims/" .. editor.localSel .. ".json"))
+	end)
+	local anim = ok and sanitizeAnim(data) or nil
+	if not anim then
+		setStatus("could not read that file", "bad")
+		return
+	end
+	loadIntoEditor(anim)
+	setStatus("loaded " .. anim.name, "good")
+end
+
+function ed.deleteSelected()
+	if hasFS and editor.localSel and type(delfile) == "function" then
+		pcall(delfile, ROOT .. "/anims/" .. editor.localSel .. ".json")
+		refreshLocal()
+		setStatus("deleted", "sub")
+	else
+		setStatus("cannot delete here", "bad")
+	end
+end
+
+function ed.exportJson()
+	local c = sanitizeAnim(editor.anim)
+	if not c then
+		setStatus("could not export", "bad")
+		return
+	end
+	local json = HttpService:JSONEncode(c)
+	if setclipboard then
+		pcall(setclipboard, json)
+		setStatus("json copied. upload it as " .. safeName(c.name) .. ".json", "good")
+	else
+		setStatus("no clipboard here. use save, then copy the file.", "bad")
+	end
+end
+
+function ed.copyIndexEntry()
+	local c = sanitizeAnim(editor.anim)
+	if not c then return end
+	local entry = string.format(
+		'{ "name": %s, "author": %s, "authorId": %.0f, "desc": "", "file": %s }',
+		HttpService:JSONEncode(c.name), HttpService:JSONEncode(c.author),
+		c.authorId, HttpService:JSONEncode(safeName(c.name) .. ".json"))
+	if setclipboard then
+		pcall(setclipboard, entry)
+		setStatus("index entry copied. paste it into index.json", "good")
+	else
+		setStatus("no clipboard here", "bad")
+	end
+end
+
+function ed.importText(text)
+	local ok, data = pcall(function() return HttpService:JSONDecode(text) end)
+	local anim, err = nil, nil
+	if ok then anim, err = sanitizeAnim(data) end
+	if not anim then
+		setStatus("import failed: " .. tostring(err or "bad json"), "bad")
+		return
+	end
+	loadIntoEditor(anim)
+	setStatus("imported " .. anim.name, "good")
+end
+
+------------------------------------------------------------------------
+-- gizmo: rotate rings and move arrows on the selected body part
+------------------------------------------------------------------------
+do
+	local GuiService = game:GetService("GuiService")
+	pcall(function()
+		local old = Workspace:FindFirstChild("MilkPivot")
+		if old then old:Destroy() end
+	end)
+
+	local pivot = Instance.new("Part")
+	pivot.Name = "MilkPivot"
+	pivot.Anchored = true
+	pivot.CanCollide = false
+	pivot.CanQuery = false
+	pivot.CanTouch = false
+	pivot.Transparency = 1
+	pivot.Size = Vector3.new(3, 3, 3)
+	pivot.Parent = Workspace
+	gz.pivot = pivot
+
+	local arcs = Instance.new("ArcHandles")
+	arcs.Color3 = Color3.fromRGB(255, 170, 60)
+	arcs.Parent = gui
+	local moves = Instance.new("Handles")
+	moves.Style = Enum.HandlesStyle.Movement
+	moves.Color3 = Color3.fromRGB(90, 200, 255)
+	moves.Parent = gui
+	local box = Instance.new("SelectionBox")
+	box.Color3 = Color3.fromRGB(255, 255, 255)
+	box.LineThickness = 0.03
+	box.Parent = gui
+
+	local function hide()
+		if arcs.Adornee ~= nil then arcs.Adornee = nil end
+		if moves.Adornee ~= nil then moves.Adornee = nil end
+		if box.Adornee ~= nil then box.Adornee = nil end
+	end
+
+	local function step()
+		local rig = state.rig
+		local key = editor.selJoint
+		if not (editor.live and state.active and rig and key and not state.custom.playing) then
+			if not gz.busy then hide() end
+			return
+		end
+		local motor = ed.getMotor(rig, key)
+		if not (motor and motor.Part1) then
+			hide()
+			return
+		end
+		local child = motor.Part1
+		local moveMode = cfg.Tool == "move" and key == "Root"
+		if not gz.busy then
+			if moveMode then
+				pivot.Size = Vector3.new(4, 4, 4)
+				pivot.CFrame = CFrame.new(child.Position)
+			else
+				local jw = child.CFrame * motor.C1
+				local rot = child.CFrame - child.CFrame.Position
+				pivot.Size = key == "Root" and Vector3.new(5, 5, 5) or Vector3.new(3.6, 3.6, 3.6)
+				pivot.CFrame = CFrame.new(jw.Position) * rot
+			end
+		end
+		local wantArc = (not moveMode) and pivot or nil
+		local wantMove = moveMode and pivot or nil
+		if arcs.Adornee ~= wantArc then arcs.Adornee = wantArc end
+		if moves.Adornee ~= wantMove then moves.Adornee = wantMove end
+		if box.Adornee ~= child then box.Adornee = child end
+	end
+	track(RunService.RenderStepped:Connect(step))
+
+	local function snapAngle(a)
+		if cfg.Snap then
+			local s = math.rad(5)
+			return math.floor(a / s + 0.5) * s
+		end
+		return a
+	end
+
+	local function beginDrag()
+		if gz.busy or not editor.selJoint or not state.rig then return end
+		local motor = ed.getMotor(state.rig, editor.selJoint)
+		if not motor then return end
+		ed.pushUndo()
+		gz.busy = true
+		gz.key = editor.selJoint
+		gz.startCF = ed.currentCF(gz.key)
+		gz.frame0 = motor.Part0.CFrame * motor.C0
+		gz.c1rot = motor.C1 - motor.C1.Position
+	end
+
+	local function endDrag()
+		if not gz.busy then return end
+		gz.busy = false
+		ed.refresh()
+	end
+
+	-- rotating the child about its own axes at the joint pivot
+	-- becomes  T' = T * (C1rot^-1 * R * C1rot)  in joint space
+	local function onRotate(axis, angle)
+		if not gz.busy then return end
+		angle = snapAngle(cfg.FlipDrag and -angle or angle)
+		local r = CFrame.fromAxisAngle(Vector3.FromAxis(axis), angle)
+		ed.setKeyCF(gz.key, editor.time, gz.startCF * (gz.c1rot:Inverse() * r * gz.c1rot))
+	end
+
+	local function onMove(face, dist)
+		if not gz.busy then return end
+		dist = math.floor(dist * 20 + 0.5) / 20
+		local world = Vector3.FromNormalId(face) * dist
+		local d = gz.frame0:VectorToObjectSpace(world)
+		local cf = gz.startCF
+		ed.setKeyCF(gz.key, editor.time, CFrame.new(cf.Position + d) * (cf - cf.Position))
+	end
+
+	track(arcs.MouseButton1Down:Connect(function() beginDrag() end))
+	track(arcs.MouseDrag:Connect(onRotate))
+	track(arcs.MouseButton1Up:Connect(function() endDrag() end))
+	track(moves.MouseButton1Down:Connect(function() beginDrag() end))
+	track(moves.MouseDrag:Connect(onMove))
+	track(moves.MouseButton1Up:Connect(function() endDrag() end))
+
+	-- safety: never stay stuck in a drag
+	track(UserInputService.InputEnded:Connect(function(input)
+		if gz.busy and (input.UserInputType == Enum.UserInputType.MouseButton1
+			or input.UserInputType == Enum.UserInputType.Touch) then
+			task.delay(0.05, function() endDrag() end)
+		end
+	end))
+
+	-- tap a body part in the world to select its track
+	local function pickJoint(pos)
+		local cam = Workspace.CurrentCamera
+		if not cam or not state.rig then return nil end
+		local ray = cam:ViewportPointToRay(pos.X, pos.Y)
+		local params = RaycastParams.new()
+		params.FilterType = Enum.RaycastFilterType.Include
+		params.FilterDescendantsInstances = { state.rig }
+		local hit = Workspace:Raycast(ray.Origin, ray.Direction * 500, params)
+		return hit and KEY_BY_PART[hit.Instance.Name] or nil
+	end
+
+	track(UserInputService.InputBegan:Connect(function(input, processed)
+		if processed or not editor.live or not state.active then return end
+		local isMouse = input.UserInputType == Enum.UserInputType.MouseButton1
+		local isTouch = input.UserInputType == Enum.UserInputType.Touch
+		if not (isMouse or isTouch) then return end
+		local pos
+		if isMouse then
+			pos = UserInputService:GetMouseLocation()
+		else
+			local inset = GuiService:GetGuiInset()
+			pos = Vector2.new(input.Position.X + inset.X, input.Position.Y + inset.Y)
+		end
+		task.delay(0.06, function()
+			if gz.busy or not editor.live or not state.active then return end
+			local key = pickJoint(pos)
+			if key then ed.selectJoint(key) end
+		end)
+	end))
+end
+
+
+------------------------------------------------------------------------
+-- fx engine. everything here is created on your client only
+------------------------------------------------------------------------
+do
+	local Lighting = cr(game:GetService("Lighting"))
+
+	local function fxColor(name)
+		if name == "rainbow" then
+			return Color3.fromHSV((os.clock() * 0.25) % 1, 0.75, 1)
+		end
+		return FX_COLORS[name] or FX_COLORS.white
+	end
+	fx.color = fxColor
+
+	pcall(function() RunService:UnbindFromRenderStep("MilkShake") end)
+
+	local fxGui = Instance.new("ScreenGui")
+	fxGui.Name = "MilkFX"
+	fxGui.ResetOnSpawn = false
+	fxGui.IgnoreGuiInset = true
+	fxGui.DisplayOrder = 998
+	fxGui.Parent = guiParent
+
+	local flash = Instance.new("Frame")
+	flash.Size = UDim2.fromScale(1, 1)
+	flash.BackgroundColor3 = Color3.new(1, 1, 1)
+	flash.BackgroundTransparency = 1
+	flash.BorderSizePixel = 0
+	flash.Active = false
+	flash.Parent = fxGui
+
+	-- screen looks
+	local POST = {
+		none = false,
+		bloom = { bloom = { 0.9, 24, 0.9 } },
+		dreamy = {
+			bloom = { 1.2, 40, 0.8 }, blur = 4,
+			cc = { tint = Color3.fromRGB(255, 235, 245), sat = 0.15, con = -0.05, bri = 0.03 },
+		},
+		noir = { cc = { tint = Color3.fromRGB(255, 255, 255), sat = -1, con = 0.25, bri = -0.03 } },
+		["neon night"] = {
+			bloom = { 1.4, 30, 0.7 },
+			cc = { tint = Color3.fromRGB(235, 225, 255), sat = 0.5, con = 0.2, bri = -0.12 },
+		},
+		sunset = {
+			bloom = { 0.6, 20, 0.95 },
+			cc = { tint = Color3.fromRGB(255, 205, 160), sat = 0.2, con = 0.1, bri = 0 },
+		},
+	}
+	fx.postNames = { "none", "bloom", "dreamy", "noir", "neon night", "sunset" }
+
+	local function postDrop(k)
+		if fx.post[k] then
+			pcall(function() fx.post[k]:Destroy() end)
+			fx.post[k] = nil
+		end
+	end
+	local function postMake(k, class)
+		if not fx.post[k] or not fx.post[k].Parent then
+			local inst = Instance.new(class)
+			inst.Name = "Milk" .. k
+			inst.Parent = Lighting
+			fx.post[k] = inst
+		end
+		return fx.post[k]
+	end
+
+	local function ensurePost(name)
+		local p = POST[name]
+		if not p then
+			postDrop("bloom")
+			postDrop("blur")
+			postDrop("cc")
+			return
+		end
+		if p.bloom then
+			local b = postMake("bloom", "BloomEffect")
+			b.Intensity, b.Size, b.Threshold = p.bloom[1], p.bloom[2], p.bloom[3]
+		else
+			postDrop("bloom")
+		end
+		if p.blur then
+			postMake("blur", "BlurEffect").Size = p.blur
+		else
+			postDrop("blur")
+		end
+		if p.cc then
+			local c = postMake("cc", "ColorCorrectionEffect")
+			c.TintColor, c.Saturation, c.Contrast, c.Brightness = p.cc.tint, p.cc.sat, p.cc.con, p.cc.bri
+		else
+			postDrop("cc")
+		end
+	end
+
+	-- body effects
+	local FOLLOW = { "Left Arm", "Right Arm", "Left Leg", "Right Leg", "LeftHand", "RightHand", "LeftFoot", "RightFoot" }
+
+	local function kill(name)
+		local o = fx.objs[name]
+		if o then
+			pcall(function() o:Destroy() end)
+			fx.objs[name] = nil
+		end
+		local ex = fx.extra[name]
+		if ex then
+			for _, inst in ipairs(ex) do pcall(function() inst:Destroy() end) end
+			fx.extra[name] = nil
+		end
+	end
+
+	local function ensure(name, on, make)
+		local o = fx.objs[name]
+		if on then
+			if not o or not o.Parent then
+				kill(name)
+				o = make()
+				fx.objs[name] = o
+			end
+			return o
+		end
+		kill(name)
+		return nil
+	end
+
+	local function restoreNeon()
+		for part, saved in pairs(fx.neonSaved) do
+			pcall(function()
+				part.Material = saved[1]
+				part.Color = saved[2]
+			end)
+			fx.neonSaved[part] = nil
+		end
+		fx.neonOn = false
+	end
+
+	local function setNeon(vis, on)
+		if on and not fx.neonOn then
+			fx.neonOn = true
+			for _, d in ipairs(vis:GetDescendants()) do
+				if d:IsA("BasePart") and d.Name ~= "HumanoidRootPart" and d.Transparency < 0.9 then
+					fx.neonSaved[d] = { d.Material, d.Color }
+					d.Material = Enum.Material.Neon
+				end
+			end
+		elseif not on and fx.neonOn then
+			restoreNeon()
+		end
+	end
+
+	local function destroyBody()
+		for name in pairs(fx.objs) do kill(name) end
+		restoreNeon()
+	end
+
+	local function target()
+		if not state.active then return nil, nil end
+		local vis = (state.kind == "limb" and state.limb and state.limb.char) or state.rig
+		local root = state.rig and state.rig:FindFirstChild("HumanoidRootPart")
+		return vis, root
+	end
+
+	function fx.step()
+		local vis, root = target()
+		if not vis or not vis.Parent then
+			if fx.visFor then
+				destroyBody()
+				fx.visFor = nil
+			end
+		else
+			if fx.visFor ~= vis then
+				destroyBody()
+				fx.visFor = vis
+			end
+			local col = fxColor(cfg.FxColor)
+			local torso = vis:FindFirstChild("Torso") or vis:FindFirstChild("UpperTorso")
+
+			local aura = ensure("aura", cfg.Aura and torso ~= nil, function()
+				local e = Instance.new("ParticleEmitter")
+				e.Name = "MilkAura"
+				e.Rate = 28
+				e.Lifetime = NumberRange.new(0.8, 1.4)
+				e.Speed = NumberRange.new(1, 3)
+				e.SpreadAngle = Vector2.new(180, 180)
+				e.LightEmission = 1
+				e.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.5), NumberSequenceKeypoint.new(1, 0) })
+				e.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.2), NumberSequenceKeypoint.new(1, 1) })
+				e.Parent = torso
+				return e
+			end)
+			if aura then aura.Color = ColorSequence.new(col) end
+
+			for _, pn in ipairs(FOLLOW) do
+				local part = vis:FindFirstChild(pn)
+				local name = "trail_" .. pn
+				local tr = ensure(name, cfg.Trails and part ~= nil, function()
+					local a0 = Instance.new("Attachment")
+					a0.Name = "MilkA0"
+					a0.Position = Vector3.new(0, 0.9, 0)
+					a0.Parent = part
+					local a1 = Instance.new("Attachment")
+					a1.Name = "MilkA1"
+					a1.Position = Vector3.new(0, -0.9, 0)
+					a1.Parent = part
+					fx.extra[name] = { a0, a1 }
+					local t = Instance.new("Trail")
+					t.Name = "MilkTrail"
+					t.Attachment0 = a0
+					t.Attachment1 = a1
+					t.Lifetime = 0.6
+					t.LightEmission = 1
+					t.FaceCamera = true
+					t.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.1), NumberSequenceKeypoint.new(1, 1) })
+					t.Parent = part
+					return t
+				end)
+				if tr then tr.Color = ColorSequence.new(col) end
+			end
+
+			local glow = ensure("glow", cfg.Glow, function()
+				local h = Instance.new("Highlight")
+				h.Name = "MilkGlow"
+				h.Adornee = vis
+				h.FillTransparency = 0.7
+				h.OutlineTransparency = 0
+				h.Parent = gui
+				return h
+			end)
+			if glow then
+				glow.FillColor = col
+				glow.OutlineColor = col
+			end
+
+			local light = ensure("light", cfg.BodyLight and torso ~= nil, function()
+				local l = Instance.new("PointLight")
+				l.Name = "MilkLight"
+				l.Brightness = 2.5
+				l.Range = 20
+				l.Parent = torso
+				return l
+			end)
+			if light then light.Color = col end
+
+			setNeon(vis, cfg.Neon)
+
+			local ring = ensure("ring", cfg.Ring and root ~= nil, function()
+				local p = Instance.new("Part")
+				p.Name = "MilkRing"
+				p.Shape = Enum.PartType.Cylinder
+				p.Size = Vector3.new(0.15, 7, 7)
+				p.Material = Enum.Material.Neon
+				p.Transparency = 0.35
+				p.Anchored = true
+				p.CanCollide = false
+				p.CanQuery = false
+				p.CanTouch = false
+				p.CastShadow = false
+				p.Parent = Workspace
+				return p
+			end)
+			if ring and root then
+				ring.CFrame = CFrame.new(root.Position - Vector3.new(0, 2.9, 0))
+					* CFrame.Angles(0, os.clock() * 1.5, 0) * CFrame.Angles(0, 0, math.pi / 2)
+				ring.Color = col
+			end
+		end
+
+		if fx.postName ~= cfg.PostPreset then
+			fx.postName = cfg.PostPreset
+			ensurePost(cfg.PostPreset)
+		end
+
+		if cfg.ClockOn then
+			if not fx.savedClock then fx.savedClock = Lighting.ClockTime end
+			Lighting.ClockTime = cfg.Clock
+		elseif fx.savedClock then
+			Lighting.ClockTime = fx.savedClock
+			fx.savedClock = nil
+		end
+	end
+	track(RunService.RenderStepped:Connect(fx.step))
+
+	-- timeline events
+	function fx.fire(kind, colName)
+		local col = fxColor(colName)
+		local vis, root = target()
+		local cam = Workspace.CurrentCamera
+		if kind == "burst" then
+			local torso = vis and (vis:FindFirstChild("Torso") or vis:FindFirstChild("UpperTorso"))
+			if not torso then return end
+			local e = Instance.new("ParticleEmitter")
+			e.Rate = 0
+			e.Lifetime = NumberRange.new(0.6, 1.2)
+			e.Speed = NumberRange.new(14, 26)
+			e.SpreadAngle = Vector2.new(180, 180)
+			e.LightEmission = 1
+			e.Color = ColorSequence.new(col)
+			e.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.9), NumberSequenceKeypoint.new(1, 0) })
+			e.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0), NumberSequenceKeypoint.new(1, 1) })
+			e.Parent = torso
+			e:Emit(50)
+			task.delay(2, function() pcall(function() e:Destroy() end) end)
+		elseif kind == "flash" then
+			flash.BackgroundColor3 = col
+			flash.BackgroundTransparency = 0.3
+			TweenService:Create(flash, TweenInfo.new(0.5), { BackgroundTransparency = 1 }):Play()
+		elseif kind == "shake" then
+			fx.shake = 0.6
+			fx.shakeMag = 0.6
+		elseif kind == "fov" then
+			if cam then
+				local base = cam.FieldOfView
+				cam.FieldOfView = base + 18
+				TweenService:Create(cam, TweenInfo.new(0.5), { FieldOfView = base }):Play()
+			end
+		elseif kind == "ring" then
+			if not root then return end
+			local p = Instance.new("Part")
+			p.Shape = Enum.PartType.Cylinder
+			p.Size = Vector3.new(0.2, 2, 2)
+			p.Material = Enum.Material.Neon
+			p.Color = col
+			p.Transparency = 0.2
+			p.Anchored = true
+			p.CanCollide = false
+			p.CanQuery = false
+			p.CanTouch = false
+			p.CFrame = CFrame.new(root.Position - Vector3.new(0, 2.9, 0)) * CFrame.Angles(0, 0, math.pi / 2)
+			p.Parent = Workspace
+			TweenService:Create(p, TweenInfo.new(0.9), { Size = Vector3.new(0.2, 28, 28), Transparency = 1 }):Play()
+			task.delay(1, function() pcall(function() p:Destroy() end) end)
+		elseif kind == "tint" then
+			local c = postMake("tint", "ColorCorrectionEffect")
+			c.TintColor = col
+			c.Saturation = 0.4
+			TweenService:Create(c, TweenInfo.new(0.9), { TintColor = Color3.new(1, 1, 1), Saturation = 0 }):Play()
+		end
+	end
+
+	function fx.fireRange(anim, t0, t1)
+		if not anim.events then return end
+		for _, e in ipairs(anim.events) do
+			if e.t > t0 and e.t <= t1 then fx.fire(e.kind, e.col) end
+		end
+	end
+
+	RunService:BindToRenderStep("MilkShake", Enum.RenderPriority.Camera.Value + 2, function(dt)
+		if fx.shake > 0 then
+			fx.shake -= dt
+			local cam = Workspace.CurrentCamera
+			if cam then
+				local m = fx.shakeMag * math.clamp(fx.shake / 0.6, 0, 1)
+				cam.CFrame = cam.CFrame * CFrame.new((math.random() - 0.5) * m, (math.random() - 0.5) * m, 0)
+			end
+		end
+	end)
+
+	function fx.cleanup()
+		destroyBody()
+		for k in pairs(fx.post) do postDrop(k) end
+		if fx.savedClock then
+			pcall(function() Lighting.ClockTime = fx.savedClock end)
+			fx.savedClock = nil
+		end
+		pcall(function() RunService:UnbindFromRenderStep("MilkShake") end)
+		pcall(function() fxGui:Destroy() end)
+	end
+end
+
+
+------------------------------------------------------------------------
+-- community library (json data only, never code)
+------------------------------------------------------------------------
+local lib = { rows = {}, items = {} }
+
+local function httpGet(url)
+	local ok, res = pcall(function() return game:HttpGet(url) end)
+	if ok and type(res) == "string" then
+		return #res <= 500000 and res or nil
+	end
+	if request then
+		local ok2, r = pcall(request, { Url = url, Method = "GET" })
+		if ok2 and r and r.Success and type(r.Body) == "string" and #r.Body <= 500000 then
+			return r.Body
+		end
+	end
+	return nil
+end
+
+local function libBase()
+	local u = settings.libraryUrl
+	if not u:match("^https://") then return nil end
+	if not u:match("/$") then u = u .. "/" end
+	return u
+end
+
+local function downloadEntry(entry)
+	local base = libBase()
+	if not base then return end
+	setStatus("downloading " .. entry.name .. "...", "sub")
+	task.spawn(function()
+		local body = httpGet(base .. entry.file)
+		if not body then
+			setStatus("download failed", "bad")
+			return
+		end
+		local ok, data = pcall(function() return HttpService:JSONDecode(body) end)
+		local anim, err = nil, nil
+		if ok then anim, err = sanitizeAnim(data) end
+		if not anim then
+			setStatus("bad animation file: " .. tostring(err or "json"), "bad")
+			return
+		end
+		if hasFS then
+			ensureFolders()
+			pcall(writefile, ROOT .. "/anims/" .. safeName(anim.name) .. ".json", HttpService:JSONEncode(anim))
+			refreshLocal()
+		end
+		loadIntoEditor(anim)
+		setStatus("downloaded " .. anim.name .. ". open editor, press play.", "good")
+	end)
+end
+
+------------------------------------------------------------------------
+-- orbit camera and hotkeys
+------------------------------------------------------------------------
+local orbitAngle = 0
+local orbitActive = false
+pcall(function() RunService:UnbindFromRenderStep("MilkOrbit") end)
+RunService:BindToRenderStep("MilkOrbit", Enum.RenderPriority.Camera.Value + 1, function(dt)
+	local cam = Workspace.CurrentCamera
+	if not cam then return end
+	if cfg.Orbit and state.active and state.rig then
+		local root = state.rig:FindFirstChild("HumanoidRootPart")
+		if root then
+			orbitActive = true
+			cam.CameraType = Enum.CameraType.Scriptable
+			orbitAngle += dt * cfg.OrbitSpeed
+			local focus = root.Position + Vector3.new(0, 1.5, 0)
+			local offset = Vector3.new(math.cos(orbitAngle), 0.25, math.sin(orbitAngle)) * cfg.OrbitDist
+			cam.CFrame = CFrame.lookAt(focus + offset, focus)
+		end
+	elseif orbitActive then
+		orbitActive = false
+		cam.CameraType = Enum.CameraType.Custom
+	end
+end)
+
+local HOTKEYS = {
+	Z = 1, X = 2, C = 3, V = 4, B = 5, N = 6, M = 7,
+}
+
+local function playEmoteByIndex(i)
+	if not state.active or not state.rigHum then return end
+	local list = state.rigHum.RigType == Enum.HumanoidRigType.R15 and EMOTES.R15 or EMOTES.R6
+	if list[i] then playAnim(list[i][2]) end
+end
+
+------------------------------------------------------------------------
+-- pages
+------------------------------------------------------------------------
+local function cfgGet(key) return function() return cfg[key] end end
+local function cfgSet(key, cb)
+	return function(v)
+		cfg[key] = v
+		if cb then cb(v) end
+	end
+end
+
+local danceP = makePage("dance")
+local editP = makePage("editor")
+local fxP = makePage("fx")
+local libP = makePage("library")
+local learnP = makePage("learn")
+local setP = makePage("settings")
+
+-- dance page
+section(danceP, "mode")
+cycle(danceP, "mode", { "Clone", "Limb" }, cfgGet("Mode"), cfgSet("Mode"))
+info(danceP, "clone keeps your body. limb kills you once, builds a puppet and drives your joints (r6 only, some games).")
+checkbox(danceP, "show me how i look!", cfgGet("ShowReal"), cfgSet("ShowReal", function()
+	if state.active then applyVisibility() end
+end))
+checkbox(danceP, "stop drifting (clone)", cfgGet("NoDrift"), cfgSet("NoDrift"))
+
+section(danceP, "reanimate")
+button(danceP, "start reanimate", "accent", function() startReanimate() end)
+button(danceP, "stop reanimate (respawn)", "danger", function() stopReanimate(true) end)
+
+section(danceP, "dances")
+for i, e in ipairs(EMOTES.R15) do
+	button(danceP, e[1], "item", function()
+		if not state.active then
+			setStatus("start reanimate first", "bad")
+			return
+		end
+		playEmoteByIndex(i)
+	end)
+end
+button(danceP, "random dance", "item", function()
+	playEmoteByIndex(math.random(1, #EMOTES.R15))
+end)
+button(danceP, "stop dance", "item", function()
+	stopAnim()
+	stopCustom()
+	setStatus("dance stopped", "sub")
+end)
+
+section(danceP, "custom roblox animation id")
+textRow(danceP, "animation id", "play", function(text) playAnim(text) end)
+
+section(danceP, "effects (pins you in place)")
+checkbox(danceP, "spin", cfgGet("Spin"), cfgSet("Spin"))
+checkbox(danceP, "bob", cfgGet("Bob"), cfgSet("Bob"))
+checkbox(danceP, "float", cfgGet("Float"), cfgSet("Float"))
+checkbox(danceP, "sway", cfgGet("Sway"), cfgSet("Sway"))
+slider(danceP, "spin speed", 1, 20, 1, cfgGet("SpinSpeed"), cfgSet("SpinSpeed"))
+slider(danceP, "effect speed", 0.2, 3, 1, cfgGet("FxSpeed"), cfgSet("FxSpeed"))
+
+section(danceP, "playback")
+checkbox(danceP, "loop animation", cfgGet("Loop"), cfgSet("Loop"))
+checkbox(danceP, "stop dance when moving", cfgGet("StopOnMove"), cfgSet("StopOnMove"))
+slider(danceP, "animation speed", 0.2, 3, 1, cfgGet("AnimSpeed"), cfgSet("AnimSpeed", function(v)
+	if state.track then pcall(function() state.track:AdjustSpeed(v) end) end
+end))
+
+-- editor page
+local function buttonBar(page, items)
+	local row = newRow(page, "Frame", 34)
+	row.BackgroundTransparency = 1
+	local layout = Instance.new("UIListLayout")
+	layout.FillDirection = Enum.FillDirection.Horizontal
+	layout.Padding = UDim.new(0, 4)
+	layout.VerticalAlignment = Enum.VerticalAlignment.Center
+	layout.Parent = row
+	local n = #items
+	for _, it in ipairs(items) do
+		local b = Instance.new("TextButton")
+		b.Size = UDim2.new(1 / n, -4, 1, -4)
+		b.BorderSizePixel = 0
+		b.Font = Enum.Font.GothamBold
+		b.TextSize = 11
+		b.Text = it[1]
+		b.AutoButtonColor = true
+		b.Parent = row
+		corner(b, 6)
+		if it[3] == "accent" then
+			skin(b, "BackgroundColor3", "accent")
+			b.TextColor3 = Color3.new(1, 1, 1)
+		else
+			skin(b, "BackgroundColor3", "item")
+			skin(b, "TextColor3", "text")
+		end
+		track(b.MouseButton1Click:Connect(it[2]))
+	end
+	return row
+end
+
+info(editP, "start reanimate first (limb mode is best). tap a body part on your character or a track name. drag the rings to rotate. every move adds a keyframe at the playhead.", 66)
+
+buttonBar(editP, {
+	{ "|<", function() ed.setTime(0) end },
+	{ "play", function() startCustom(editor.anim) end, "accent" },
+	{ "stop", function()
+		stopCustom()
+		setStatus("stopped", "sub")
+	end },
+	{ "<key", function() ed.jumpKey(-1) end },
+	{ "key>", function() ed.jumpKey(1) end },
+})
+
+buttonBar(editP, {
+	{ "rotate", function()
+		cfg.Tool = "rotate"
+		if tl.updateReadout then tl.updateReadout() end
+	end },
+	{ "move", function()
+		cfg.Tool = "move"
+		if tl.updateReadout then tl.updateReadout() end
+		if editor.selJoint ~= "Root" then setStatus("move works on the body track", "sub") end
+	end },
+	{ "undo", function() ed.undo() end },
+	{ "key", function() ed.keySelected() end },
+	{ "key all", function() ed.keyAll() end },
+	{ "del", function() ed.deleteKey() end },
+})
+
+tl.readout = info(editP, "", 30)
+
+-- timeline: ruler, one track per body part, one fx track
+do
+	local ROWS = #JOINT_ORDER + 1
+	local LABEL_W, ROW_H, RULER_H = 70, 24, 22
+	local tlHeight = RULER_H + ROWS * ROW_H + 6
+	local pps = 60
+	local laneW = 250
+	local EVENT_COLOR = Color3.fromRGB(255, 170, 60)
+
+	local tlRow = newRow(editP, "Frame", tlHeight)
+	tlRow.ClipsDescendants = true
+
+	tl.labels = {}
+	for i = 1, ROWS do
+		local key = i <= #JOINT_ORDER and JOINT_ORDER[i][1] or nil
+		local b = Instance.new("TextButton")
+		b.Size = UDim2.fromOffset(LABEL_W - 4, ROW_H - 2)
+		b.Position = UDim2.fromOffset(2, RULER_H + (i - 1) * ROW_H + 1)
+		b.BorderSizePixel = 0
+		b.Font = Enum.Font.Gotham
+		b.TextSize = 11
+		b.Text = key and JOINT_LABEL[key] or "fx"
+		b.AutoButtonColor = true
+		b.Parent = tlRow
+		corner(b, 4)
+		tl.labels[i] = { btn = b, key = key }
+		track(b.MouseButton1Click:Connect(function() ed.selectJoint(key) end))
+	end
+
+	function tl.paintLabels()
+		for _, l in ipairs(tl.labels) do
+			local on
+			if l.key then
+				on = editor.selJoint == l.key
+			else
+				on = editor.selEvent ~= nil
+			end
+			l.btn.BackgroundColor3 = on and theme.accent or theme.panel
+			l.btn.TextColor3 = on and Color3.new(1, 1, 1) or theme.text
+		end
+	end
+	table.insert(themeHooks, function()
+		tl.paintLabels()
+		if tl.rebuild then tl.rebuild() end
+	end)
+
+	local lane = Instance.new("ScrollingFrame")
+	lane.Position = UDim2.fromOffset(LABEL_W, 0)
+	lane.Size = UDim2.new(1, -LABEL_W - 4, 1, 0)
+	lane.BackgroundTransparency = 1
+	lane.BorderSizePixel = 0
+	lane.ScrollBarThickness = 0
+	lane.ScrollingEnabled = false
+	lane.ScrollingDirection = Enum.ScrollingDirection.X
+	lane.ClipsDescendants = true
+	lane.CanvasSize = UDim2.fromOffset(300, 0)
+	lane.Parent = tlRow
+
+	local rowBgs = {}
+	for i = 1, ROWS do
+		local f = Instance.new("Frame")
+		f.BorderSizePixel = 0
+		f.Position = UDim2.fromOffset(0, RULER_H + (i - 1) * ROW_H)
+		f.Size = UDim2.fromOffset(300, ROW_H)
+		f.ZIndex = 1
+		f.Parent = lane
+		skin(f, "BackgroundColor3", i % 2 == 0 and "item" or "panel")
+		rowBgs[i] = f
+	end
+
+	local rulerBg = Instance.new("Frame")
+	rulerBg.BorderSizePixel = 0
+	rulerBg.Size = UDim2.fromOffset(300, RULER_H)
+	rulerBg.ZIndex = 1
+	rulerBg.Parent = lane
+	skin(rulerBg, "BackgroundColor3", "panel")
+
+	local tickLayer = Instance.new("Frame")
+	tickLayer.BackgroundTransparency = 1
+	tickLayer.Size = UDim2.fromOffset(300, RULER_H)
+	tickLayer.ZIndex = 2
+	tickLayer.Parent = lane
+
+	local hit = Instance.new("TextButton")
+	hit.BackgroundTransparency = 1
+	hit.Text = ""
+	hit.AutoButtonColor = false
+	hit.Size = UDim2.fromOffset(300, tlHeight)
+	hit.ZIndex = 2
+	hit.Parent = lane
+
+	local keyLayer = Instance.new("Frame")
+	keyLayer.BackgroundTransparency = 1
+	keyLayer.Active = false
+	keyLayer.Size = UDim2.fromOffset(300, tlHeight)
+	keyLayer.ZIndex = 3
+	keyLayer.Parent = lane
+
+	local playhead = Instance.new("Frame")
+	playhead.BorderSizePixel = 0
+	playhead.Size = UDim2.fromOffset(2, tlHeight)
+	playhead.ZIndex = 5
+	playhead.Active = false
+	playhead.Parent = lane
+	skin(playhead, "BackgroundColor3", "bad")
+
+	local function timeFromX(x)
+		local cx = x - lane.AbsolutePosition.X + lane.CanvasPosition.X
+		return math.clamp(cx / pps, 0, editor.anim.length)
+	end
+	local function snapT(t) return math.floor(t * 20 + 0.5) / 20 end
+	local function isPress(input)
+		return input.UserInputType == Enum.UserInputType.MouseButton1
+			or input.UserInputType == Enum.UserInputType.Touch
+	end
+
+	track(hit.InputBegan:Connect(function(input)
+		if not isPress(input) then return end
+		local function scrub(x) ed.setTime(snapT(timeFromX(x))) end
+		activeSlider = scrub
+		scrub(input.Position.X)
+	end))
+
+	local function diamond(x, row, color)
+		local d = Instance.new("TextButton")
+		d.Size = UDim2.fromOffset(12, 12)
+		d.AnchorPoint = Vector2.new(0.5, 0.5)
+		d.Position = UDim2.fromOffset(x, RULER_H + (row - 1) * ROW_H + ROW_H / 2)
+		d.Rotation = 45
+		d.BorderSizePixel = 0
+		d.Text = ""
+		d.AutoButtonColor = false
+		d.BackgroundColor3 = color
+		d.ZIndex = 4
+		d.Parent = keyLayer
+		return d
+	end
+
+	function tl.updatePlayhead()
+		playhead.Position = UDim2.fromOffset(editor.time * pps - 1, 0)
+	end
+
+	function tl.updateReadout()
+		local joint = editor.selJoint and JOINT_LABEL[editor.selJoint] or "none"
+		local extra = ""
+		if editor.selEvent then
+			extra = "   event: " .. editor.selEvent.kind .. " (" .. editor.selEvent.col .. ")"
+		end
+		tl.readout.Text = string.format("time %.2fs of %.1fs   part: %s   tool: %s%s",
+			editor.time, editor.anim.length, joint, cfg.Tool, extra)
+	end
+
+	function tl.rebuildKeys()
+		keyLayer:ClearAllChildren()
+
+		for i, j in ipairs(JOINT_ORDER) do
+			local list = editor.anim.tracks[j[1]]
+			for _, k in ipairs(list) do
+				local selected = editor.selKey ~= nil and editor.selKey.k == k
+				local d = diamond(k.t * pps, i, selected and theme.good or theme.accent)
+				d.InputBegan:Connect(function(input)
+					if not isPress(input) then return end
+					editor.selJoint = j[1]
+					editor.selKey = { joint = j[1], k = k }
+					editor.selEvent = nil
+					ed.pushUndo()
+					ed.setTime(k.t)
+					tl.paintLabels()
+					activeSlider = function(x)
+						local nt = snapT(timeFromX(x))
+						for _, other in ipairs(list) do
+							if other ~= k and math.abs(other.t - nt) < 0.02 then return end
+						end
+						k.t = nt
+						table.sort(list, function(a, b) return a.t < b.t end)
+						editor.time = nt
+						tl.updatePlayhead()
+						tl.updateReadout()
+						tl.rebuildKeys()
+					end
+					activeRelease = function() ed.refresh() end
+					tl.rebuildKeys()
+				end)
+			end
+		end
+
+		local evs = editor.anim.events
+		for _, e in ipairs(evs) do
+			local selected = editor.selEvent == e
+			local d = diamond(e.t * pps, ROWS, selected and theme.good or EVENT_COLOR)
+			d.InputBegan:Connect(function(input)
+				if not isPress(input) then return end
+				editor.selEvent = e
+				editor.selKey = nil
+				ed.pushUndo()
+				ed.setTime(e.t)
+				tl.paintLabels()
+				activeSlider = function(x)
+					e.t = snapT(timeFromX(x))
+					table.sort(evs, function(a, b) return a.t < b.t end)
+					editor.time = e.t
+					tl.updatePlayhead()
+					tl.updateReadout()
+					tl.rebuildKeys()
+				end
+				activeRelease = function() ed.refresh() end
+				tl.rebuildKeys()
+			end)
+		end
+	end
+
+	function tl.rebuild()
+		local w = lane.AbsoluteSize.X
+		if w > 50 then laneW = w end
+		local len = math.max(editor.anim.length, 0.5)
+		pps = (laneW / len) * cfg.TLZoom
+		local canvasW = math.max(laneW, len * pps + 12)
+		lane.CanvasSize = UDim2.fromOffset(canvasW, 0)
+		for _, f in ipairs(rowBgs) do f.Size = UDim2.fromOffset(canvasW, ROW_H) end
+		rulerBg.Size = UDim2.fromOffset(canvasW, RULER_H)
+		tickLayer.Size = UDim2.fromOffset(canvasW, RULER_H)
+		hit.Size = UDim2.fromOffset(canvasW, tlHeight)
+		keyLayer.Size = UDim2.fromOffset(canvasW, tlHeight)
+
+		tickLayer:ClearAllChildren()
+		local step = 1
+		if pps < 22 then step = 5 elseif pps < 40 then step = 2 end
+		for s = 0, math.floor(len), step do
+			local tick = Instance.new("Frame")
+			tick.BorderSizePixel = 0
+			tick.BackgroundColor3 = theme.sub
+			tick.Size = UDim2.fromOffset(1, RULER_H - 10)
+			tick.Position = UDim2.fromOffset(s * pps, 8)
+			tick.ZIndex = 2
+			tick.Parent = tickLayer
+			local lbl = Instance.new("TextLabel")
+			lbl.BackgroundTransparency = 1
+			lbl.Font = Enum.Font.Gotham
+			lbl.TextSize = 10
+			lbl.TextColor3 = theme.sub
+			lbl.TextXAlignment = Enum.TextXAlignment.Left
+			lbl.Text = s .. "s"
+			lbl.Size = UDim2.fromOffset(30, 10)
+			lbl.Position = UDim2.fromOffset(s * pps + 3, 0)
+			lbl.ZIndex = 2
+			lbl.Parent = tickLayer
+		end
+
+		local maxScroll = math.max(0, canvasW - laneW)
+		lane.CanvasPosition = Vector2.new(cfg.TLScroll * maxScroll, 0)
+		tl.rebuildKeys()
+		tl.updatePlayhead()
+		tl.updateReadout()
+		tl.paintLabels()
+	end
+
+	track(lane:GetPropertyChangedSignal("AbsoluteSize"):Connect(function() tl.rebuild() end))
+end
+
+-- fine tune sliders for the selected body part
+function tl.bindFine()
+	local key = editor.selJoint
+	for i, ctrl in ipairs(editor.fine) do
+		local spec = ctrl.spec
+		local visible = false
+		if key then
+			if i <= 3 then
+				visible = true
+				local names = { "rotate X", "rotate Y", "rotate Z" }
+				spec.text, spec.min, spec.max, spec.dec = names[i], -180, 180, 0
+				spec.get = function()
+					local x, y, z = ed.currentCF(key):ToEulerAnglesXYZ()
+					return math.deg(({ x, y, z })[i])
+				end
+				spec.set = function(v)
+					ed.maybeUndo()
+					local cf = ed.currentCF(key)
+					local x, y, z = cf:ToEulerAnglesXYZ()
+					local e = { math.deg(x), math.deg(y), math.deg(z) }
+					e[i] = v
+					ed.setKeyCF(key, editor.time,
+						CFrame.new(cf.Position) * CFrame.fromEulerAnglesXYZ(rad(e[1]), rad(e[2]), rad(e[3])))
+				end
+			elseif key == "Root" then
+				visible = true
+				local j = i - 3
+				local labels = { "move right", "move up", "move back" }
+				spec.text, spec.min, spec.max, spec.dec = labels[j], -6, 6, 2
+				spec.get = function()
+					local p = ed.currentCF(key).Position
+					return ({ -p.X, p.Z, p.Y })[j]
+				end
+				spec.set = function(v)
+					ed.maybeUndo()
+					local cf = ed.currentCF(key)
+					local p = cf.Position
+					local vals = { -p.X, p.Z, p.Y }
+					vals[j] = v
+					ed.setKeyCF(key, editor.time,
+						CFrame.new(Vector3.new(-vals[1], vals[3], vals[2])) * (cf - cf.Position))
+				end
+			end
+		end
+		ctrl.row.Visible = visible
+		if visible then ctrl.render() end
+	end
+end
+
+function tl.onTime(light)
+	tl.updatePlayhead()
+	tl.updateReadout()
+	if not light then tl.bindFine() end
+end
+
+section(editP, "timeline view")
+slider(editP, "zoom", 1, 8, 1, cfgGet("TLZoom"), cfgSet("TLZoom", function() tl.rebuild() end))
+slider(editP, "scroll", 0, 1, 2, cfgGet("TLScroll"), cfgSet("TLScroll", function() tl.rebuild() end))
+table.insert(editor.refreshers, cycle(editP, "easing for new keys",
+	{ "Smooth", "Linear", "Hold" }, cfgGet("Ease"),
+	cfgSet("Ease", function(v)
+		if editor.selKey then editor.selKey.k.ease = v end
+	end)))
+
+section(editP, "fine tune selected part")
+for i = 1, 6 do
+	editor.fine[i] = slider(editP, "-", -1, 1, 0, function() return 0 end, function() end)
+end
+table.insert(editor.refreshers, function()
+	tl.bindFine()
+	tl.updateReadout()
+end)
+tl.bindFine()
+button(editP, "mirror left to right", "item", function() ed.mirror({ "LS", "LH" }, { "RS", "RH" }) end)
+button(editP, "mirror right to left", "item", function() ed.mirror({ "RS", "RH" }, { "LS", "LH" }) end)
+button(editP, "clear selected track", "item", function() ed.clearTrack() end)
+
+section(editP, "animation")
+editor.nameBox = textBox(editP, "animation name", editor.anim.name, function(text)
+	editor.anim.name = clean(text, 40)
+	if editor.anim.name == "" then editor.anim.name = "untitled" end
+end)
+table.insert(editor.refreshers, function() editor.nameBox.Text = editor.anim.name end)
+
+local lenCtrl = slider(editP, "length (seconds)", 0.5, 30, 1,
+	function() return editor.anim.length end,
+	function(v)
+		editor.anim.length = v
+		for _, j in ipairs(JOINT_ORDER) do
+			for _, k in ipairs(editor.anim.tracks[j[1]]) do
+				if k.t > v then k.t = v end
+			end
+		end
+		for _, e in ipairs(editor.anim.events) do
+			if e.t > v then e.t = v end
+		end
+		if editor.time > v then editor.time = v end
+		tl.rebuild()
+	end)
+table.insert(editor.refreshers, function() lenCtrl.render() end)
+
+table.insert(editor.refreshers, checkbox(editP, "loop",
+	function() return editor.anim.loop end,
+	function(v) editor.anim.loop = v end))
+
+slider(editP, "preview speed", 0.2, 3, 1, cfgGet("PreviewSpeed"), cfgSet("PreviewSpeed", function(v)
+	state.custom.speed = v
+end))
+
+button(editP, "new animation", "item", function()
+	loadIntoEditor(newAnim())
+	setStatus("new animation", "sub")
+end)
+
+section(editP, "music")
+info(editP, "id = a roblox audio id. file = an mp3 in workspace/MilkReanim/music/. only you hear it.", 40)
+table.insert(editor.refreshers, cycle(editP, "source",
+	{ "none", "id", "file" },
+	function() return editor.anim.sound.kind end,
+	function(v) editor.anim.sound.kind = v end))
+editor.refBox = textBox(editP, "audio id or file name", "", function(text)
+	editor.anim.sound.ref = clean(text, 60)
+end)
+table.insert(editor.refreshers, function() editor.refBox.Text = editor.anim.sound.ref end)
+local volCtrl = slider(editP, "volume", 0, 1, 2,
+	function() return editor.anim.sound.volume end,
+	function(v) editor.anim.sound.volume = v end)
+table.insert(editor.refreshers, function() volCtrl.render() end)
+local offCtrl = slider(editP, "start offset in song (s)", 0, 120, 1,
+	function() return editor.anim.sound.offset end,
+	function(v) editor.anim.sound.offset = v end)
+table.insert(editor.refreshers, function() offCtrl.render() end)
+
+section(editP, "save and share")
+button(editP, "save animation", "accent", function() ed.saveAnim() end)
+button(editP, "refresh saved list", "item", refreshLocal)
+table.insert(editor.refreshers, cycle(editP, "saved",
+	function() return editor.localNames end,
+	function() return editor.localSel end,
+	function(v) editor.localSel = v end))
+button(editP, "load selected", "item", function() ed.loadSelected() end)
+button(editP, "delete selected", "danger", function() ed.deleteSelected() end)
+button(editP, "export json to clipboard", "item", function() ed.exportJson() end)
+button(editP, "copy index entry (for your library)", "item", function() ed.copyIndexEntry() end)
+textRow(editP, "paste animation json", "import", function(text) ed.importText(text) end)
+
+-- fx page
+info(fxP, "everything here is client side. only you see it. nobody else in the server does.", 40)
+section(fxP, "effect color")
+cycle(fxP, "color", FX_COLOR_NAMES, cfgGet("FxColor"), cfgSet("FxColor"))
+section(fxP, "on your character")
+checkbox(fxP, "aura particles", cfgGet("Aura"), cfgSet("Aura"))
+checkbox(fxP, "limb trails", cfgGet("Trails"), cfgSet("Trails"))
+checkbox(fxP, "glow outline", cfgGet("Glow"), cfgSet("Glow"))
+checkbox(fxP, "body light", cfgGet("BodyLight"), cfgSet("BodyLight"))
+checkbox(fxP, "neon body", cfgGet("Neon"), cfgSet("Neon"))
+checkbox(fxP, "ground ring", cfgGet("Ring"), cfgSet("Ring"))
+section(fxP, "screen")
+cycle(fxP, "look", fx.postNames, cfgGet("PostPreset"), cfgSet("PostPreset"))
+checkbox(fxP, "override time of day", cfgGet("ClockOn"), cfgSet("ClockOn"))
+slider(fxP, "time of day (hours)", 0, 24, 1, cfgGet("Clock"), cfgSet("Clock"))
+section(fxP, "timeline events")
+info(fxP, "events sit on the fx track at the bottom of the timeline. they fire while your animation plays.", 40)
+cycle(fxP, "event type", FX_KIND_LIST, cfgGet("FxEvent"), cfgSet("FxEvent"))
+button(fxP, "add event at playhead", "accent", function() ed.addEvent() end)
+button(fxP, "test event now", "item", function() fx.fire(cfg.FxEvent, cfg.FxColor) end)
+button(fxP, "delete selected event or key", "item", function() ed.deleteKey() end)
+
+-- library page
+info(libP, "the library is a web folder with an index.json and animation json files. the script downloads data only. it never runs downloaded code.", 54)
+section(libP, "library url")
+local libBox = textBox(libP, "https://raw.githubusercontent.com/you/repo/main/", settings.libraryUrl, function(text)
+	text = clean(text, 300)
+	if text ~= "" and not text:match("^https://") then
+		setStatus("library url must start with https://", "bad")
+		return
+	end
+	settings.libraryUrl = text
+	saveSettings()
+	setStatus("library url saved", "good")
+end)
+button(libP, "refresh library", "accent", function()
+	local base = libBase()
+	if not base then
+		setStatus("set a library url first (https://)", "bad")
+		return
+	end
+	setStatus("loading library...", "sub")
+	task.spawn(function()
+		local body = httpGet(base .. "index.json")
+		if not body then
+			setStatus("could not reach the library", "bad")
+			return
+		end
+		local ok, data = pcall(function() return HttpService:JSONDecode(body) end)
+		if not ok or type(data) ~= "table" or type(data.animations) ~= "table" then
+			setStatus("index.json is not valid", "bad")
+			return
+		end
+		for _, r in ipairs(lib.rows) do pcall(function() r:Destroy() end) end
+		lib.rows = {}
+		local count = 0
+		for _, e in ipairs(data.animations) do
+			if count >= 100 then break end
+			if type(e) == "table" and type(e.file) == "string" and e.file:match("^[%w_%-%.]+%.json$")
+				and not e.file:find("%.%.") then
+				local entry = {
+					name = clean(e.name, 40),
+					author = clean(e.author, 30),
+					file = e.file,
+					official = tonumber(e.authorId) == OWNER_ID,
+				}
+				if entry.name == "" then entry.name = entry.file end
+				local label = (entry.official and "★ " or "") .. entry.name
+					.. (entry.author ~= "" and ("  by " .. entry.author) or "")
+				local b = button(libP, label, "item", function() downloadEntry(entry) end)
+				table.insert(lib.rows, b)
+				count += 1
+			end
+		end
+		setStatus(count .. " animations in library", "good")
+	end)
+end)
+info(libP, "tap an animation to download it into the editor. it is also saved to your list.", 30)
+
+-- learn page
+section(learnP, "quick start")
+info(learnP, "1. dance tab: pick a mode and press start reanimate. clone keeps your body. limb kills you once (r6 only).")
+info(learnP, "2. press a dance button. walking cancels it unless you turn that off.")
+info(learnP, "3. stop reanimate respawns you.")
+
+section(learnP, "animate your own dance")
+info(learnP, "1. start reanimate. open the editor tab. limb mode works best.")
+info(learnP, "2. tap a body part on your character, or tap a track name in the timeline.")
+info(learnP, "3. drag the colored rings to rotate it. press move to drag the whole body with arrows.")
+info(learnP, "4. every change makes a diamond keyframe on that part's track at the red playhead.")
+info(learnP, "5. tap or drag the time ruler to move the playhead. pose again. new diamond.")
+info(learnP, "6. drag a diamond sideways to change its time. press del to remove it. undo fixes mistakes.")
+info(learnP, "7. press play. set length and loop. name it and press save.")
+info(learnP, "key adds a keyframe for the selected part. key all keys every part at the playhead. mirror copies one side to the other.")
+info(learnP, "if the rings turn the wrong way, settings > flip rotate drag direction.")
+
+section(learnP, "effects")
+info(learnP, "the fx tab adds aura, trails, glow, light, neon body, a ground ring and screen looks. all client side. only you see them.")
+info(learnP, "to sync effects to your dance: pick an event type, move the playhead, press add event. it lands on the orange fx track and fires during playback.")
+
+section(learnP, "music")
+info(learnP, "set source to id and paste a roblox audio id. or set source to file and put an mp3 in workspace/MilkReanim/music/ then type its file name.")
+info(learnP, "start offset skips into the song. the song restarts each loop. only you hear it. the game does not replicate it.")
+
+section(learnP, "share your animation")
+info(learnP, "1. make a free github repo. upload an index.json and your exported animation files.")
+info(learnP, "2. in the editor press export json, make a file with that text, upload it.")
+info(learnP, "3. press copy index entry and paste it into the animations list in index.json.")
+info(learnP, "4. in the library tab paste your raw url, for example https://raw.githubusercontent.com/you/repo/main/ then refresh.")
+info(learnP, "friends paste the same url. they can download and play your dances. the library only moves json data. effects events travel inside the file.")
+
+section(learnP, "controls")
+info(learnP, "right shift hides the menu. end unloads. with hotkeys on: z x c v b n m play the seven dances.")
+
+section(learnP, "credits")
+local ownerLabel = info(learnP, "script owner id: " .. OWNER_ID, 22)
+task.spawn(function()
+	local ok, name = pcall(function() return Players:GetNameFromUserIdAsync(OWNER_ID) end)
+	if ok and name then ownerLabel.Text = "script owner: " .. name .. " (" .. OWNER_ID .. ")" end
+end)
+
+-- settings page
+section(setP, "theme")
+cycle(setP, "theme", { "milk", "dark" },
+	function() return settings.theme end,
+	function(v) applyTheme(v) end)
+info(setP, "milk is the white theme. dark is black mode.", 22)
+
+section(setP, "camera")
+checkbox(setP, "orbit camera while dancing", cfgGet("Orbit"), cfgSet("Orbit"))
+slider(setP, "orbit speed", 0.1, 3, 1, cfgGet("OrbitSpeed"), cfgSet("OrbitSpeed"))
+slider(setP, "orbit distance", 5, 40, 0, cfgGet("OrbitDist"), cfgSet("OrbitDist"))
+
+section(setP, "keys")
+checkbox(setP, "dance hotkeys (z x c v b n m)", cfgGet("Hotkeys"), cfgSet("Hotkeys"))
+
+section(setP, "editor")
+checkbox(setP, "snap rotation to 5 degrees", cfgGet("Snap"), cfgSet("Snap"))
+checkbox(setP, "flip rotate drag direction", cfgGet("FlipDrag"), cfgSet("FlipDrag"))
+checkbox(setP, "wide window (pc)", cfgGet("Wide"), cfgSet("Wide", function(v)
+	EXPANDED = UDim2.fromOffset(v and 560 or 360, 580)
+	COLLAPSED = UDim2.fromOffset(v and 560 or 360, 44)
+	main.Size = minimized and COLLAPSED or EXPANDED
+end))
+info(setP, "if the rings rotate the wrong way, turn on flip. wide window gives the timeline more room.", 30)
+
+section(setP, "limb mode")
+cycle(setP, "root parking", { "Under puppet", "Void" }, cfgGet("ParkMode"), cfgSet("ParkMode"))
+info(setP, "set parking before you press start. void needs a writable fallen parts height.", 30)
+
+section(setP, "script")
+button(setP, "unload script", "danger", function() cleanup() end)
+
+showPage("dance")
+refreshLocal()
+tl.rebuild()
+
+------------------------------------------------------------------------
+-- minimize, drag, unload, keys
+------------------------------------------------------------------------
+minimized = false
+track(minBtn.MouseButton1Click:Connect(function()
+	minimized = not minimized
+	minBtn.Text = minimized and "+" or "-"
+	if minimized then
+		body.Visible = false
+	else
+		task.delay(0.12, function()
+			if not minimized and main.Parent then body.Visible = true end
+		end)
+	end
+	TweenService:Create(main, TweenInfo.new(0.2, Enum.EasingStyle.Quad), {
+		Size = minimized and COLLAPSED or EXPANDED,
+	}):Play()
+end))
+
+do
+	local dragging = false
+	local dragStart
+	local startPos
+
+	track(header.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1
+			or input.UserInputType == Enum.UserInputType.Touch then
+			dragging = true
+			dragStart = input.Position
+			startPos = main.Position
+		end
+	end))
+	track(UserInputService.InputChanged:Connect(function(input)
+		local isMove = input.UserInputType == Enum.UserInputType.MouseMovement
+			or input.UserInputType == Enum.UserInputType.Touch
+		if not isMove then return end
+		if activeSlider then
+			activeSlider(input.Position.X)
+		elseif dragging then
+			local delta = input.Position - dragStart
+			local screen = gui.AbsoluteSize
+			local x = math.clamp(startPos.X.Offset + delta.X, 0, math.max(0, screen.X - 120))
+			local y = math.clamp(startPos.Y.Offset + delta.Y, 0, math.max(0, screen.Y - 44))
+			main.Position = UDim2.fromOffset(x, y)
+		end
+	end))
+	track(UserInputService.InputEnded:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1
+			or input.UserInputType == Enum.UserInputType.Touch then
+			dragging = false
+			activeSlider = nil
+			if activeRelease then
+				local f = activeRelease
+				activeRelease = nil
+				f()
+			end
+		end
+	end))
+end
+
+cleanup = function()
+	stopReanimate(true)
+	stopSound()
+	pcall(function() RunService:UnbindFromRenderStep("MilkOrbit") end)
+	pcall(function()
+		local cam = Workspace.CurrentCamera
+		if cam and orbitActive then cam.CameraType = Enum.CameraType.Custom end
+	end)
+	pcall(function() Workspace.FallenPartsDestroyHeight = origFPDH end)
+	for _, conn in ipairs(connections) do pcall(function() conn:Disconnect() end) end
+	connections = {}
+	pcall(function() fx.cleanup() end)
+	pcall(function() gz.pivot:Destroy() end)
+	pcall(function() gui:Destroy() end)
+end
+
+env.MilkReanimCleanup = cleanup
+
+track(UserInputService.InputBegan:Connect(function(input, processed)
+	if processed then return end
+	if UserInputService:GetFocusedTextBox() then return end
+	local k = input.KeyCode
+	if k == Enum.KeyCode.RightShift then
+		main.Visible = not main.Visible
+	elseif k == Enum.KeyCode.End then
+		cleanup()
+	elseif cfg.Hotkeys and input.UserInputType == Enum.UserInputType.Keyboard then
+		local idx = HOTKEYS[k.Name]
+		if idx then
+			playEmoteByIndex(idx)
+		elseif k == Enum.KeyCode.G then
+			stopAnim()
+			stopCustom()
+		end
+	end
+end))
