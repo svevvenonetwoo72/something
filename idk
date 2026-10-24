@@ -1,0 +1,667 @@
+local cloneref = cloneref or function(x) return x end
+local function S(n) return cloneref(game:GetService(n)) end
+
+local Players = S("Players")
+local RunService = S("RunService")
+local UIS = S("UserInputService")
+local TeleportService = S("TeleportService")
+local VirtualUser = S("VirtualUser")
+local CoreGui = S("CoreGui")
+local lp = Players.LocalPlayer
+local genv = getgenv()
+
+if genv.MilkObbyCleanup then pcall(genv.MilkObbyCleanup) end
+
+local conns = {}
+local function track(c) conns[#conns + 1] = c return c end
+
+local alive = true
+local gui
+local hookOld
+local hookInstalled = false
+
+local st = {
+	speed = false, speedVal = 50,
+	jump = false, jumpVal = 100,
+	fly = false, flyVal = 60,
+	noclip = false, infjump = false,
+	spy = false, afk = false,
+}
+local orig = { ws = 16, jp = 50 }
+
+local C = {
+	bg = Color3.fromRGB(22, 22, 26),
+	side = Color3.fromRGB(28, 28, 33),
+	item = Color3.fromRGB(38, 38, 45),
+	off = Color3.fromRGB(58, 58, 68),
+	accent = Color3.fromRGB(88, 140, 255),
+	text = Color3.fromRGB(235, 235, 240),
+	sub = Color3.fromRGB(140, 140, 155),
+}
+
+local function make(class, props, parent)
+	local o = Instance.new(class)
+	for k, v in pairs(props) do o[k] = v end
+	o.Parent = parent
+	return o
+end
+local function corner(o, r) return make("UICorner", { CornerRadius = UDim.new(0, r or 6) }, o) end
+
+local function getChar()
+	local ch = lp.Character
+	if not ch then return end
+	return ch, ch:FindFirstChildOfClass("Humanoid"), ch:FindFirstChild("HumanoidRootPart")
+end
+
+-- serializer / arg parser -------------------------------------------------
+
+local function P(path)
+	local cur = game
+	for part in tostring(path):gmatch("[^%.]+") do
+		cur = cur:FindFirstChild(part)
+		if not cur then return nil end
+	end
+	return cur
+end
+
+local function ser(v, d)
+	d = d or 0
+	local t = typeof(v)
+	if t == "string" then return string.format("%q", v)
+	elseif t == "number" or t == "boolean" or t == "nil" then return tostring(v)
+	elseif t == "Instance" then return 'P("' .. v:GetFullName() .. '")'
+	elseif t == "Vector3" then return ("Vector3.new(%s,%s,%s)"):format(v.X, v.Y, v.Z)
+	elseif t == "Vector2" then return ("Vector2.new(%s,%s)"):format(v.X, v.Y)
+	elseif t == "CFrame" then return "CFrame.new(" .. table.concat({ v:GetComponents() }, ",") .. ")"
+	elseif t == "Color3" then return ("Color3.new(%s,%s,%s)"):format(v.R, v.G, v.B)
+	elseif t == "EnumItem" then return tostring(v)
+	elseif t == "table" then
+		if d >= 3 then return "{}" end
+		local parts = {}
+		for k, val in pairs(v) do
+			parts[#parts + 1] = "[" .. ser(k, d + 1) .. "]=" .. ser(val, d + 1)
+		end
+		return "{" .. table.concat(parts, ",") .. "}"
+	end
+	return "nil"
+end
+
+local function serArgs(args)
+	local out = {}
+	for i = 1, args.n do out[i] = ser(args[i]) end
+	return table.concat(out, ", ")
+end
+
+local argEnv = setmetatable({ P = P, lp = lp, Players = Players }, { __index = genv })
+
+-- fly (camera relative, smoothed) -----------------------------------------
+
+local fly = { bv = nil, bg = nil, vel = Vector3.zero, tilt = 0 }
+
+local function sweepMovers()
+	local ch = lp.Character
+	if not ch then return end
+	for _, d in ipairs(ch:GetDescendants()) do
+		if d:IsA("BodyVelocity") or d:IsA("BodyGyro") then
+			d:Destroy()
+		end
+	end
+end
+
+local function flyStop()
+	sweepMovers()
+	if fly.bv then fly.bv:Destroy() fly.bv = nil end
+	-- rest of the function stays the same
+	if fly.bv then fly.bv:Destroy() fly.bv = nil end
+	if fly.bg then fly.bg:Destroy() fly.bg = nil end
+	fly.vel = Vector3.zero
+	fly.tilt = 0
+
+	local _, hum, root = getChar()
+	if root then
+		local look = root.CFrame.LookVector
+		local flat = Vector3.new(look.X, 0, look.Z)
+		if flat.Magnitude < 1e-3 then flat = Vector3.new(0, 0, -1) end
+		root.CFrame = CFrame.lookAt(root.Position, root.Position + flat.Unit)
+		root.AssemblyLinearVelocity = Vector3.zero
+		root.AssemblyAngularVelocity = Vector3.zero
+	end
+	if hum then
+		hum.PlatformStand = false
+		hum:ChangeState(Enum.HumanoidStateType.Freefall)
+	end
+end
+
+local function flyEnsure(hum, root)
+	if not fly.bv or fly.bv.Parent ~= root then
+		if fly.bv then fly.bv:Destroy() end
+		fly.bv = make("BodyVelocity", { MaxForce = Vector3.one * 9e9, Velocity = Vector3.zero }, root)
+	end
+	if not fly.bg or fly.bg.Parent ~= root then
+		if fly.bg then fly.bg:Destroy() end
+		fly.bg = make("BodyGyro", { MaxTorque = Vector3.one * 9e9, P = 9e4, D = 1e3, CFrame = root.CFrame }, root)
+	end
+	if not hum.PlatformStand then hum.PlatformStand = true end
+end
+
+local function key(k) return UIS:IsKeyDown(k) and 1 or 0 end
+
+track(RunService.RenderStepped:Connect(function(dt)
+	if not st.fly or not alive then return end
+	local _, hum, root = getChar()
+	local cam = workspace.CurrentCamera
+	if not hum or not root or not cam or hum.Health <= 0 then return end
+
+	flyEnsure(hum, root)
+
+	local cf = cam.CFrame
+	local fwd, side, up = 0, 0, 0
+	if not UIS:GetFocusedTextBox() then
+		fwd = key(Enum.KeyCode.W) - key(Enum.KeyCode.S)
+		side = key(Enum.KeyCode.D) - key(Enum.KeyCode.A)
+		up = key(Enum.KeyCode.E) + key(Enum.KeyCode.Space) - key(Enum.KeyCode.Q) - key(Enum.KeyCode.LeftControl)
+		up = math.clamp(up, -1, 1)
+	end
+
+	local dir = cf.LookVector * fwd + cf.RightVector * side + Vector3.yAxis * up
+	if fwd == 0 and side == 0 and up == 0 and hum.MoveDirection.Magnitude > 0 then
+		dir = hum.MoveDirection
+	end
+
+	local speed = math.max(st.flyVal, 1)
+	local target = dir.Magnitude > 0 and dir.Unit * speed or Vector3.zero
+	local alpha = 1 - math.exp(-dt * 9)
+
+	fly.vel = fly.vel:Lerp(target, alpha)
+	fly.bv.Velocity = fly.vel
+
+	local tiltTarget = math.clamp(fly.vel:Dot(cf.LookVector) / speed, -1, 1) * math.rad(40)
+	fly.tilt += (tiltTarget - fly.tilt) * alpha
+	fly.bg.CFrame = cf * CFrame.Angles(-fly.tilt, 0, 0)
+end))
+
+-- gui ---------------------------------------------------------------------
+
+local function guiParent()
+	if gethui then
+		local ok, h = pcall(gethui)
+		if ok and h then return h end
+	end
+	local ok = pcall(function() local _ = CoreGui.Name end)
+	return ok and CoreGui or lp:WaitForChild("PlayerGui")
+end
+
+gui = make("ScreenGui", { Name = "MilkObby", ResetOnSpawn = false, ZIndexBehavior = Enum.ZIndexBehavior.Sibling }, guiParent())
+
+local main = make("Frame", {
+	Size = UDim2.fromOffset(540, 350), Position = UDim2.new(0.5, -270, 0.5, -175),
+	BackgroundColor3 = C.bg, BorderSizePixel = 0,
+}, gui)
+corner(main, 10)
+
+local bar = make("Frame", { Size = UDim2.new(1, 0, 0, 30), BackgroundColor3 = C.side, BorderSizePixel = 0 }, main)
+corner(bar, 10)
+make("TextLabel", {
+	Size = UDim2.new(1, -20, 1, 0), Position = UDim2.fromOffset(12, 0), BackgroundTransparency = 1,
+	Text = "obby creator panel", TextColor3 = C.text, Font = Enum.Font.GothamBold, TextSize = 13,
+	TextXAlignment = Enum.TextXAlignment.Left,
+}, bar)
+
+local dragging, dragStart, startPos = false, nil, nil
+track(bar.InputBegan:Connect(function(i)
+	if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
+		dragging, dragStart, startPos = true, i.Position, main.Position
+	end
+end))
+track(UIS.InputChanged:Connect(function(i)
+	if dragging and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then
+		local d = i.Position - dragStart
+		main.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + d.X, startPos.Y.Scale, startPos.Y.Offset + d.Y)
+	end
+end))
+track(UIS.InputEnded:Connect(function(i)
+	if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
+		dragging = false
+	end
+end))
+track(UIS.InputBegan:Connect(function(i, gp)
+	if not gp and i.KeyCode == Enum.KeyCode.RightShift then main.Visible = not main.Visible end
+end))
+
+local side = make("Frame", {
+	Size = UDim2.new(0, 130, 1, -38), Position = UDim2.fromOffset(4, 34), BackgroundColor3 = C.side, BorderSizePixel = 0,
+}, main)
+corner(side, 8)
+
+local avatar = make("ImageLabel", {
+	Size = UDim2.fromOffset(54, 54), Position = UDim2.new(0.5, -27, 0, 10),
+	BackgroundColor3 = C.item, BorderSizePixel = 0,
+}, side)
+corner(avatar, 27)
+task.spawn(function()
+	local ok, img = pcall(Players.GetUserThumbnailAsync, Players, lp.UserId, Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size100x100)
+	if ok and alive then avatar.Image = img end
+end)
+make("TextLabel", {
+	Size = UDim2.new(1, -8, 0, 18), Position = UDim2.fromOffset(4, 68), BackgroundTransparency = 1,
+	Text = lp.DisplayName, TextColor3 = C.text, Font = Enum.Font.GothamBold, TextSize = 12, TextTruncate = Enum.TextTruncate.AtEnd,
+}, side)
+
+local content = make("Frame", {
+	Size = UDim2.new(1, -146, 1, -38), Position = UDim2.fromOffset(140, 34), BackgroundTransparency = 1,
+}, main)
+
+local pages, tabBtns = {}, {}
+local function selectPage(name)
+	for n, p in pairs(pages) do p.Visible = (n == name) end
+	for n, b in pairs(tabBtns) do b.BackgroundColor3 = (n == name) and C.accent or C.item end
+end
+
+local function newPage(name, scroll, order)
+	local p
+	if scroll then
+		p = make("ScrollingFrame", {
+			Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, BorderSizePixel = 0,
+			ScrollBarThickness = 3, CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y, Visible = false,
+		}, content)
+		make("UIListLayout", { Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder }, p)
+	else
+		p = make("Frame", { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Visible = false }, content)
+	end
+	pages[name] = p
+	local b = make("TextButton", {
+		Size = UDim2.new(1, -16, 0, 28), Position = UDim2.fromOffset(8, 92 + (order - 1) * 32),
+		BackgroundColor3 = C.item, Text = name, TextColor3 = C.text, Font = Enum.Font.Gotham, TextSize = 12, AutoButtonColor = false,
+	}, side)
+	corner(b, 6)
+	track(b.MouseButton1Click:Connect(function() selectPage(name) end))
+	tabBtns[name] = b
+	return p
+end
+
+local function newToggle(page, text, cb)
+	local row = make("TextButton", { Size = UDim2.new(1, -6, 0, 32), BackgroundColor3 = C.item, Text = "", AutoButtonColor = false }, page)
+	corner(row)
+	make("TextLabel", {
+		Size = UDim2.new(1, -60, 1, 0), Position = UDim2.fromOffset(10, 0), BackgroundTransparency = 1,
+		Text = text, TextColor3 = C.text, Font = Enum.Font.Gotham, TextSize = 13, TextXAlignment = Enum.TextXAlignment.Left,
+	}, row)
+	local pill = make("Frame", { Size = UDim2.fromOffset(34, 16), Position = UDim2.new(1, -44, 0.5, -8), BackgroundColor3 = C.off }, row)
+	corner(pill, 8)
+	local dot = make("Frame", { Size = UDim2.fromOffset(12, 12), Position = UDim2.fromOffset(2, 2), BackgroundColor3 = C.text }, pill)
+	corner(dot, 6)
+	local on = false
+	track(row.MouseButton1Click:Connect(function()
+		on = not on
+		pill.BackgroundColor3 = on and C.accent or C.off
+		dot.Position = on and UDim2.fromOffset(20, 2) or UDim2.fromOffset(2, 2)
+		task.spawn(function()
+	local ok, err = pcall(cb, on)
+	if not ok then warn("milk toggle: " .. tostring(err)) end
+end)
+	end))
+end
+
+local function newInput(page, text, default, cb)
+	local row = make("Frame", { Size = UDim2.new(1, -6, 0, 32), BackgroundColor3 = C.item }, page)
+	corner(row)
+	make("TextLabel", {
+		Size = UDim2.new(1, -100, 1, 0), Position = UDim2.fromOffset(10, 0), BackgroundTransparency = 1,
+		Text = text, TextColor3 = C.text, Font = Enum.Font.Gotham, TextSize = 13, TextXAlignment = Enum.TextXAlignment.Left,
+	}, row)
+	local box = make("TextBox", {
+		Size = UDim2.fromOffset(70, 22), Position = UDim2.new(1, -80, 0.5, -11), BackgroundColor3 = C.off,
+		Text = tostring(default), TextColor3 = C.text, Font = Enum.Font.Gotham, TextSize = 12, ClearTextOnFocus = false,
+	}, row)
+	corner(box, 4)
+	local last = default
+	track(box.FocusLost:Connect(function()
+		local n = tonumber(box.Text)
+		if n then last = n pcall(cb, n) else box.Text = tostring(last) end
+	end))
+end
+
+local function newButton(page, text, cb)
+	local b = make("TextButton", {
+		Size = UDim2.new(1, -6, 0, 32), BackgroundColor3 = C.item, Text = text, TextColor3 = C.text,
+		Font = Enum.Font.Gotham, TextSize = 13, AutoButtonColor = true,
+	}, page)
+	corner(b)
+	track(b.MouseButton1Click:Connect(function() task.spawn(function() pcall(cb) end) end))
+	return b
+end
+
+-- player tab --------------------------------------------------------------
+
+local pg = newPage("player", true, 1)
+
+newToggle(pg, "speed", function(on)
+	st.speed = on
+	local _, hum = getChar()
+	if hum then
+		if on then orig.ws = hum.WalkSpeed else hum.WalkSpeed = orig.ws end
+	end
+end)
+newInput(pg, "speed value", st.speedVal, function(n) st.speedVal = n end)
+newToggle(pg, "jump power", function(on)
+	st.jump = on
+	local _, hum = getChar()
+	if hum then
+		if on then orig.jp = hum.JumpPower else hum.UseJumpPower = true hum.JumpPower = orig.jp end
+	end
+end)
+newInput(pg, "jump value", st.jumpVal, function(n) st.jumpVal = n end)
+newToggle(pg, "fly (wasd / e q)", function(on)
+	st.fly = on
+	if on then return end
+	task.wait()
+	if type(flyStop) == "function" then
+		local ok, err = pcall(flyStop)
+		if not ok then warn("milk flyStop: " .. tostring(err)) end
+	end
+	local _, hum, root = getChar()
+	if root then
+		for _, d in ipairs(root:GetChildren()) do
+			if d:IsA("BodyVelocity") or d:IsA("BodyGyro") then d:Destroy() end
+		end
+		root.AssemblyLinearVelocity = Vector3.zero
+	end
+	if hum then
+		hum.PlatformStand = false
+		hum:ChangeState(Enum.HumanoidStateType.Freefall)
+	end
+end)
+newInput(pg, "fly speed", st.flyVal, function(n) st.flyVal = n end)
+newToggle(pg, "noclip", function(on) st.noclip = on end)
+newToggle(pg, "infinite jump", function(on) st.infjump = on end)
+
+local tpName = ""
+do
+	local row = make("Frame", { Size = UDim2.new(1, -6, 0, 32), BackgroundColor3 = C.item }, pg)
+	corner(row)
+	local box = make("TextBox", {
+		Size = UDim2.new(1, -90, 0, 22), Position = UDim2.fromOffset(8, 5), BackgroundColor3 = C.off,
+		PlaceholderText = "player name", PlaceholderColor3 = C.sub, Text = "", TextColor3 = C.text,
+		Font = Enum.Font.Gotham, TextSize = 12, ClearTextOnFocus = false,
+	}, row)
+	corner(box, 4)
+	local go = make("TextButton", {
+		Size = UDim2.fromOffset(66, 22), Position = UDim2.new(1, -74, 0, 5), BackgroundColor3 = C.accent,
+		Text = "tp", TextColor3 = C.text, Font = Enum.Font.GothamBold, TextSize = 12,
+	}, row)
+	corner(go, 4)
+	track(go.MouseButton1Click:Connect(function()
+		tpName = box.Text:lower()
+		if tpName == "" then return end
+		for _, plr in ipairs(Players:GetPlayers()) do
+			if plr ~= lp and (plr.Name:lower():find(tpName, 1, true) or plr.DisplayName:lower():find(tpName, 1, true)) then
+				local _, _, root = getChar()
+				local tr = plr.Character and plr.Character:FindFirstChild("HumanoidRootPart")
+				if root and tr then root.CFrame = tr.CFrame * CFrame.new(0, 0, 3) end
+				break
+			end
+		end
+	end))
+end
+
+-- remotes tab -------------------------------------------------------------
+
+local rp = newPage("remotes", false, 2)
+local selected
+
+local function mkList(parent, pos, size)
+	local f = make("ScrollingFrame", {
+		Position = pos, Size = size, BackgroundColor3 = C.side, BorderSizePixel = 0,
+		ScrollBarThickness = 3, CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y,
+	}, parent)
+	corner(f, 6)
+	make("UIListLayout", { Padding = UDim.new(0, 2), SortOrder = Enum.SortOrder.LayoutOrder }, f)
+	return f
+end
+
+local function addRow(list, text, cb, order)
+	local b = make("TextButton", {
+		Size = UDim2.new(1, -6, 0, 22), BackgroundColor3 = C.item, Text = text, TextColor3 = C.text,
+		Font = Enum.Font.Code, TextSize = 11, TextXAlignment = Enum.TextXAlignment.Left,
+		TextTruncate = Enum.TextTruncate.AtEnd, LayoutOrder = order or 0,
+	}, list)
+	corner(b, 4)
+	make("UIPadding", { PaddingLeft = UDim.new(0, 6) }, b)
+	track(b.MouseButton1Click:Connect(function() pcall(cb) end))
+	return b
+end
+
+local filter = make("TextBox", {
+	Size = UDim2.new(1, -6, 0, 26), BackgroundColor3 = C.item, PlaceholderText = "filter remotes",
+	PlaceholderColor3 = C.sub, Text = "", TextColor3 = C.text, Font = Enum.Font.Gotham, TextSize = 12, ClearTextOnFocus = false,
+}, rp)
+corner(filter, 6)
+local remoteList = mkList(rp, UDim2.fromOffset(0, 32), UDim2.new(1, -6, 0, 110))
+local selLabel = make("TextLabel", {
+	Position = UDim2.fromOffset(0, 146), Size = UDim2.new(1, -6, 0, 18), BackgroundTransparency = 1,
+	Text = "selected: none", TextColor3 = C.sub, Font = Enum.Font.Code, TextSize = 11,
+	TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd,
+}, rp)
+local argBox = make("TextBox", {
+	Position = UDim2.fromOffset(0, 168), Size = UDim2.new(1, -6, 0, 26), BackgroundColor3 = C.item,
+	PlaceholderText = 'args: "hello", 5, Vector3.new(0,5,0)', PlaceholderColor3 = C.sub, Text = "",
+	TextColor3 = C.text, Font = Enum.Font.Code, TextSize = 11, ClearTextOnFocus = false, TextXAlignment = Enum.TextXAlignment.Left,
+}, rp)
+corner(argBox, 6)
+make("UIPadding", { PaddingLeft = UDim.new(0, 6) }, argBox)
+local status = make("TextLabel", {
+	Position = UDim2.fromOffset(0, 232), Size = UDim2.new(1, -6, 0, 32), BackgroundTransparency = 1,
+	Text = "", TextColor3 = C.sub, Font = Enum.Font.Code, TextSize = 11, TextWrapped = true,
+	TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top,
+}, rp)
+
+local function setStatus(t) status.Text = tostring(t) end
+local function selectRemote(r)
+	selected = r
+	selLabel.Text = "selected: " .. r:GetFullName()
+end
+
+local function refreshRemotes()
+	for _, c in ipairs(remoteList:GetChildren()) do
+		if c:IsA("TextButton") then c:Destroy() end
+	end
+	local q = filter.Text:lower()
+	local n = 0
+	for _, d in ipairs(game:GetDescendants()) do
+		if d:IsA("RemoteEvent") or d:IsA("RemoteFunction") then
+			if not d:IsDescendantOf(CoreGui) then
+				local path = d:GetFullName()
+				if q == "" or path:lower():find(q, 1, true) then
+					n += 1
+					if n > 250 then break end
+					addRow(remoteList, (d:IsA("RemoteEvent") and "[E] " or "[F] ") .. path, function() selectRemote(d) end, n)
+				end
+			end
+		end
+	end
+	setStatus(n .. " remotes listed")
+end
+
+local function fireSelected()
+	if not selected or not selected.Parent then setStatus("no valid remote selected") return end
+	local fn, err = loadstring("return " .. argBox.Text)
+	if not fn then setStatus("parse error: " .. tostring(err)) return end
+	pcall(setfenv, fn, argEnv)
+	local ok, packed = pcall(function() return table.pack(fn()) end)
+	if not ok then setStatus("arg error: " .. tostring(packed)) return end
+	local remote = selected
+	task.spawn(function()
+		local ok2, res = pcall(function()
+			if remote:IsA("RemoteEvent") then
+				remote:FireServer(table.unpack(packed, 1, packed.n))
+				return "fired"
+			elseif remote:IsA("RemoteFunction") then
+				return "returned: " .. ser(remote:InvokeServer(table.unpack(packed, 1, packed.n)))
+			end
+			return "not a remote"
+		end)
+		if alive then setStatus(ok2 and res or ("error: " .. tostring(res))) end
+	end)
+end
+
+do
+	local names = { "fire", "copy path", "refresh" }
+	local acts = {
+		fireSelected,
+		function()
+			if selected and setclipboard then setclipboard(selected:GetFullName()) setStatus("path copied") end
+		end,
+		refreshRemotes,
+	}
+	for i, n in ipairs(names) do
+		local b = make("TextButton", {
+			Size = UDim2.new(1 / 3, -6, 0, 28), Position = UDim2.new((i - 1) / 3, 0, 0, 200),
+			BackgroundColor3 = i == 1 and C.accent or C.item, Text = n, TextColor3 = C.text,
+			Font = Enum.Font.Gotham, TextSize = 12,
+		}, rp)
+		corner(b, 6)
+		track(b.MouseButton1Click:Connect(acts[i]))
+	end
+end
+track(filter:GetPropertyChangedSignal("Text"):Connect(refreshRemotes))
+
+-- spy tab -----------------------------------------------------------------
+
+local sp = newPage("spy", true, 3)
+local logList
+local logQueue, logCount = {}, 0
+
+local function addLog(remote, method, args)
+	if not alive or not logList then return end
+	logCount += 1
+	local argStr = ""
+	pcall(function() argStr = serArgs(args) end)
+	local tag = method == "FireServer" and "[E] " or "[F] "
+	local row = addRow(logList, tag .. remote.Name .. "(" .. argStr .. ")", function()
+		selectRemote(remote)
+		argBox.Text = argStr
+		selectPage("remotes")
+		setStatus("loaded from spy")
+	end, -logCount)
+	logQueue[#logQueue + 1] = row
+	if #logQueue > 80 then
+		local old = table.remove(logQueue, 1)
+		if old then old:Destroy() end
+	end
+end
+
+newToggle(sp, "remote spy", function(on)
+	st.spy = on
+	if on and not hookInstalled then
+		addLog({ Name = "hookmetamethod unavailable", Parent = nil, GetFullName = function() return "none" end }, "FireServer", table.pack())
+	end
+end)
+newButton(sp, "clear log", function()
+	for _, r in ipairs(logQueue) do r:Destroy() end
+	logQueue = {}
+end)
+logList = mkList(sp, UDim2.new(), UDim2.new(1, -6, 0, 180))
+logList.Parent = sp
+logList.LayoutOrder = 99
+
+if hookmetamethod and getnamecallmethod then
+	local wrap = newcclosure or function(f) return f end
+	local ok = pcall(function()
+		hookOld = hookmetamethod(game, "__namecall", wrap(function(self, ...)
+			local m = getnamecallmethod()
+			if st.spy and alive and (m == "FireServer" or m == "InvokeServer") and typeof(self) == "Instance"
+				and (self.ClassName == "RemoteEvent" or self.ClassName == "RemoteFunction") and not checkcaller() then
+				local args = table.pack(...)
+				task.defer(addLog, self, m, args)
+			end
+			return hookOld(self, ...)
+		end))
+	end)
+	hookInstalled = ok and hookOld ~= nil
+end
+
+-- misc tab ----------------------------------------------------------------
+
+local mp = newPage("misc", true, 4)
+
+newToggle(mp, "anti afk", function(on) st.afk = on end)
+track(lp.Idled:Connect(function()
+	if st.afk then
+		VirtualUser:CaptureController()
+		VirtualUser:ClickButton2(Vector2.new())
+	end
+end))
+newButton(mp, "copy position", function()
+	local _, _, root = getChar()
+	if root and setclipboard then setclipboard(ser(root.CFrame)) end
+end)
+newButton(mp, "rejoin", function()
+	if #Players:GetPlayers() <= 1 then
+		TeleportService:Teleport(game.PlaceId, lp)
+	else
+		TeleportService:TeleportToPlaceInstance(game.PlaceId, game.JobId, lp)
+	end
+end)
+newButton(mp, "reset character", function()
+	local _, hum = getChar()
+	if hum then hum.Health = 0 end
+end)
+
+-- core loops --------------------------------------------------------------
+
+track(RunService.Heartbeat:Connect(function()
+	local _, hum, root = getChar()
+	if not hum or not root then return end
+	if st.speed then hum.WalkSpeed = st.speedVal end
+	if st.jump then hum.UseJumpPower = true hum.JumpPower = st.jumpVal end
+	if st.fly then
+		local y = 0
+		if UIS:IsKeyDown(Enum.KeyCode.Space) then y = 1
+		elseif UIS:IsKeyDown(Enum.KeyCode.LeftControl) then y = -1 end
+		root.AssemblyLinearVelocity = hum.MoveDirection * st.flyVal + Vector3.new(0, y * st.flyVal, 0)
+	end
+end))
+
+track(RunService.Stepped:Connect(function()
+	if not st.noclip then return end
+	local ch = lp.Character
+	if not ch then return end
+	for _, d in ipairs(ch:GetDescendants()) do
+		if d:IsA("BasePart") and d.CanCollide then d.CanCollide = false end
+	end
+end))
+
+track(UIS.JumpRequest:Connect(function()
+	if st.infjump then
+		local _, hum = getChar()
+		if hum then hum:ChangeState(Enum.HumanoidStateType.Jumping) end
+	end
+end))
+
+-- unload ------------------------------------------------------------------
+
+local function cleanup()
+	alive = false
+	st.spy, st.fly, st.noclip, st.speed, st.jump, st.infjump = false, false, false, false, false, false
+	if hookInstalled and hookOld then
+		pcall(hookmetamethod, game, "__namecall", hookOld)
+	end
+	local _, hum, root = getChar()
+	if hum then hum.WalkSpeed = orig.ws hum.UseJumpPower = true hum.JumpPower = orig.jp end
+	if root then root.AssemblyLinearVelocity = Vector3.zero end
+	for _, c in ipairs(conns) do pcall(function() c:Disconnect() end) end
+	conns = {}
+	if gui then gui:Destroy() end
+	genv.MilkObbyCleanup = nil
+end
+genv.MilkObbyCleanup = cleanup
+
+local unload = make("TextButton", {
+	Size = UDim2.new(1, -16, 0, 28), Position = UDim2.new(0, 8, 1, -36), BackgroundColor3 = Color3.fromRGB(170, 60, 60),
+	Text = "unload", TextColor3 = C.text, Font = Enum.Font.GothamBold, TextSize = 12,
+}, side)
+corner(unload, 6)
+track(unload.MouseButton1Click:Connect(cleanup))
+
+refreshRemotes()
+selectPage("player")
