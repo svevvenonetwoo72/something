@@ -169,7 +169,6 @@ track(Workspace.DescendantRemoving:Connect(function(d) prompts[d] = nil end))
 loop(0.25, function()
 	if not S.autoPrompt then return end
 	local hrp = getHRP()
-	if not hrp or not fireproximityprompt then return end
 	local filter = S.promptFilter:lower()
 	for p in pairs(prompts) do
 		if p.Enabled and p.Parent then
@@ -178,7 +177,15 @@ loop(0.25, function()
 			if part and part:IsA("BasePart") and (part.Position - hrp.Position).Magnitude <= S.promptRange then
 				local text = (p.ObjectText .. " " .. p.ActionText .. " " .. part.Name):lower()
 				if filter == "" or text:find(filter, 1, true) then
-					pcall(fireproximityprompt, p)
+					if fireproximityprompt then
+						pcall(fireproximityprompt, p)
+					else
+						pcall(function()
+						p:InputHoldBegin()
+						task.wait(p.HoldDuration + 0.05)
+						p:InputHoldEnd()
+	end)
+end
 				end
 			end
 		end
@@ -297,7 +304,7 @@ local spyLog, calls, callId = {}, {}, 0
 S.spyIgnore = {}
 if hookmetamethod and getnamecallmethod then
 	local old
-	old = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
+	old = hookmetamethod(game, "__namecall", (newcclosure or function(f) return f end)(function(self, ...)
 		local method = getnamecallmethod()
 		if S.spy and (method == "FireServer" or method == "InvokeServer")
 			and (not checkcaller or not checkcaller()) then
