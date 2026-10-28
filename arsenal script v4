@@ -71,6 +71,7 @@ local cfg = {
 	Fullbright = false,
 	AntiAFK = true,
 	LowPerf = false,
+	Intro = true,
 
 	EnemyColor = Color3.fromRGB(255, 70, 70),
 }
@@ -1232,6 +1233,220 @@ end
 ------------------------------------------------------------------------
 -- menu
 ------------------------------------------------------------------------
+------------------------------------------------------------------------
+-- intro. click or press any key to skip
+------------------------------------------------------------------------
+local function playIntro(onDone)
+	task.spawn(function()
+		local skip = false
+		local conn, rootRef
+
+		pcall(function()
+			local detected = "unknown"
+			pcall(function()
+				if identifyexecutor then detected = tostring((identifyexecutor())) end
+			end)
+
+			local root = Instance.new("CanvasGroup")
+			root.Name = "Intro"
+			root.Size = UDim2.fromScale(1, 1)
+			root.BackgroundColor3 = theme.bg
+			root.BorderSizePixel = 0
+			root.GroupTransparency = 1
+			root.Active = true
+			root.ZIndex = 100
+			root.Parent = gui
+			rootRef = root
+
+			conn = UserInputService.InputBegan:Connect(function(input)
+				local t = input.UserInputType
+				if t == Enum.UserInputType.MouseButton1 or t == Enum.UserInputType.Touch
+					or t == Enum.UserInputType.Keyboard then
+					skip = true
+				end
+			end)
+
+			local function mk(class, props)
+				local o = Instance.new(class)
+				for k, v in pairs(props) do o[k] = v end
+				o.Parent = root
+				return o
+			end
+			local function pause(t)
+				local t0 = os.clock()
+				while os.clock() - t0 < t and not skip do task.wait() end
+			end
+
+			local w = math.max(gui.AbsoluteSize.X, 320)
+			local brand = (theme.title:match("^(.-)%s*|") or "milk"):upper()
+			local full = brand .. " ARSENAL"
+			local titleSize = math.clamp(math.floor(w / 15), 22, 44)
+
+			-- corner brackets
+			local function bracket(ax, ay)
+				local x = ax == 0 and 20 or -20
+				local y = ay == 0 and 20 or -20
+				mk("Frame", {
+					AnchorPoint = Vector2.new(ax, ay), Position = UDim2.new(ax, x, ay, y),
+					Size = UDim2.fromOffset(34, 2), BackgroundColor3 = theme.accent, BorderSizePixel = 0,
+				})
+				mk("Frame", {
+					AnchorPoint = Vector2.new(ax, ay), Position = UDim2.new(ax, x, ay, y),
+					Size = UDim2.fromOffset(2, 34), BackgroundColor3 = theme.accent, BorderSizePixel = 0,
+				})
+			end
+			bracket(0, 0)
+			bracket(1, 0)
+			bracket(0, 1)
+			bracket(1, 1)
+
+			-- scanline that sweeps down the screen
+			local function sweep(delay)
+				task.delay(delay, function()
+					if skip or not root.Parent then return end
+					local line = mk("Frame", {
+						Size = UDim2.new(1, 0, 0, 2), Position = UDim2.new(0, 0, 0, -4),
+						BackgroundColor3 = theme.accent, BackgroundTransparency = 0.55, BorderSizePixel = 0,
+					})
+					local tw = TweenService:Create(line, TweenInfo.new(1.1, Enum.EasingStyle.Linear), {
+						Position = UDim2.new(0, 0, 1, 4),
+					})
+					tw.Completed:Connect(function() pcall(function() line:Destroy() end) end)
+					tw:Play()
+				end)
+			end
+
+			local function titleLabel(color, z, transparency)
+				return mk("TextLabel", {
+					Size = UDim2.new(1, 0, 0, 56), AnchorPoint = Vector2.new(0.5, 0.5),
+					Position = UDim2.new(0.5, 0, 0.5, -26), BackgroundTransparency = 1,
+					Font = theme.fontBold, TextSize = titleSize, TextColor3 = color,
+					TextTransparency = transparency, Text = "", ZIndex = z,
+				})
+			end
+			local titleR = titleLabel(theme.bad, 1, 0.35)
+			local titleC = titleLabel(theme.accent, 2, 0.35)
+			local title = titleLabel(theme.text, 3, 0)
+
+			local underline = mk("Frame", {
+				AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0.5, 0, 0.5, 6),
+				Size = UDim2.fromOffset(0, 2), BackgroundColor3 = theme.accent, BorderSizePixel = 0, ZIndex = 3,
+			})
+			local sub = mk("TextLabel", {
+				Size = UDim2.new(1, 0, 0, 18), AnchorPoint = Vector2.new(0.5, 0.5),
+				Position = UDim2.new(0.5, 0, 0.5, 26), BackgroundTransparency = 1,
+				Font = theme.font, TextSize = 13, TextColor3 = theme.sub, TextTransparency = 1,
+				Text = "arsenal v4  |  " .. detected, ZIndex = 3,
+			})
+
+			local boot = mk("TextLabel", {
+				Size = UDim2.new(0.7, 0, 0, 100), Position = UDim2.new(0, 26, 1, -150),
+				BackgroundTransparency = 1, Font = Enum.Font.Code, TextSize = 12, TextColor3 = theme.sub,
+				TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Bottom, Text = "",
+			})
+
+			local barW = math.min(300, w * 0.7)
+			local barBg = mk("Frame", {
+				AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0.5, 0, 0.78, 0),
+				Size = UDim2.fromOffset(barW, 4), BackgroundColor3 = theme.off, BorderSizePixel = 0,
+			})
+			local fill = Instance.new("Frame")
+			fill.Size = UDim2.new(0, 0, 1, 0)
+			fill.BackgroundColor3 = theme.accent
+			fill.BorderSizePixel = 0
+			fill.Parent = barBg
+			local pct = mk("TextLabel", {
+				Size = UDim2.fromOffset(80, 16), AnchorPoint = Vector2.new(0.5, 0.5),
+				Position = UDim2.new(0.5, 0, 0.78, 16), BackgroundTransparency = 1,
+				Font = Enum.Font.Code, TextSize = 11, TextColor3 = theme.sub, Text = "0%",
+			})
+
+			local function typeInto(text, delay)
+				for i = 1, #text do
+					if skip then break end
+					local s = text:sub(1, i)
+					title.Text, titleC.Text, titleR.Text = s, s, s
+					pause(delay)
+				end
+				title.Text, titleC.Text, titleR.Text = text, text, text
+			end
+
+			-- play
+			TweenService:Create(root, TweenInfo.new(0.35), { GroupTransparency = 0 }):Play()
+			sweep(0.15)
+			sweep(1.0)
+			sweep(1.9)
+			pause(0.4)
+
+			typeInto(full, 0.045)
+
+			-- glitch burst, then settle with a slight color split
+			for k = 1, 9 do
+				if skip then break end
+				local j = (k % 2 == 0) and 1 or -1
+				titleR.Position = UDim2.new(0.5, -4 * j - math.random(0, 3), 0.5, -26 + math.random(-2, 2))
+				titleC.Position = UDim2.new(0.5, 4 * j + math.random(0, 3), 0.5, -26 + math.random(-2, 2))
+				title.Position = UDim2.new(0.5, math.random(-2, 2), 0.5, -26)
+				pause(0.04)
+			end
+			titleR.Position = UDim2.new(0.5, -2, 0.5, -26)
+			titleC.Position = UDim2.new(0.5, 2, 0.5, -26)
+			title.Position = UDim2.new(0.5, 0, 0.5, -26)
+
+			TweenService:Create(underline, TweenInfo.new(0.45, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+				Size = UDim2.fromOffset(math.min(260, w * 0.6), 2),
+			}):Play()
+			TweenService:Create(sub, TweenInfo.new(0.4), { TextTransparency = 0 }):Play()
+			pause(0.3)
+
+			-- fake boot log and loading bar
+			local lines = {
+				{ 0.0, "> executor: " .. detected },
+				{ 0.3, "> theme: " .. themeName },
+				{ 0.6, "> reading config" },
+				{ 0.95, "> building overlay" },
+				{ 1.25, "> caching players (" .. #Players:GetPlayers() .. ")" },
+				{ 1.5, "> ready" },
+			}
+			local DUR = 1.6
+			local shown = 0
+			local shownLines = {}
+			local t0 = os.clock()
+			while not skip do
+				local el = os.clock() - t0
+				local a = math.clamp(el / DUR, 0, 1)
+				local eased = 1 - (1 - a) * (1 - a)
+				fill.Size = UDim2.new(eased, 0, 1, 0)
+				pct.Text = math.floor(eased * 100) .. "%"
+				while shown < #lines and lines[shown + 1][1] <= el do
+					shown += 1
+					table.insert(shownLines, lines[shown][2])
+					if #shownLines > 6 then table.remove(shownLines, 1) end
+					boot.Text = table.concat(shownLines, "\n")
+				end
+				if a >= 1 then break end
+				task.wait()
+			end
+			fill.Size = UDim2.new(1, 0, 1, 0)
+			pct.Text = "100%"
+			shownLines = {}
+			for i = math.max(1, #lines - 5), #lines do table.insert(shownLines, lines[i][2]) end
+			boot.Text = table.concat(shownLines, "\n")
+
+			sub.Text = "welcome, " .. LocalPlayer.DisplayName
+			pause(0.4)
+
+			local tw = TweenService:Create(root, TweenInfo.new(0.45), { GroupTransparency = 1 })
+			tw:Play()
+			task.wait(0.5)
+		end)
+
+		if conn then pcall(function() conn:Disconnect() end) end
+		if rootRef then pcall(function() rootRef:Destroy() end) end
+		if onDone then onDone() end
+	end)
+end
+
 local EXPANDED = UDim2.fromOffset(340, 520)
 local COLLAPSED = UDim2.fromOffset(340, 40)
 
@@ -1695,6 +1910,11 @@ section(settingsP, "performance")
 toggle(settingsP, "low performance mode", "LowPerf")
 info(settingsP, "slower name updates, no skeleton past 150 studs, silent aim target every third frame.", 40)
 
+section(settingsP, "startup")
+toggle(settingsP, "play intro on start", "Intro")
+button(settingsP, "replay intro", nil, function() playIntro() end)
+info(settingsP, "click or press any key to skip the intro.", 20)
+
 section(settingsP, "config")
 button(settingsP, "save config", "accent", function()
 	setStatus(saveConfig() and "config saved" or "this executor cannot save files", theme.sub)
@@ -1896,9 +2116,18 @@ local function askExecutor()
 	choice("other (high unc)", "full: drawing overlay, better arrows, silent aim", 134, not suggestCompat and detected ~= "unknown", "full")
 end
 
-local saved = readMode()
-if saved then
-	finishStart(saved)
+local function begin()
+	if not gui.Parent then return end
+	local saved = readMode()
+	if saved then
+		finishStart(saved)
+	else
+		askExecutor()
+	end
+end
+
+if cfg.Intro then
+	playIntro(begin)
 else
-	askExecutor()
+	begin()
 end
