@@ -1,0 +1,1029 @@
+local cr = cloneref or function(x) return x end
+local Players = cr(game:GetService("Players"))
+local UIS = cr(game:GetService("UserInputService"))
+local TweenService = cr(game:GetService("TweenService"))
+local Workspace = cr(game:GetService("Workspace"))
+local player = Players.LocalPlayer
+local env = getgenv and getgenv() or _G
+
+if env.MilkGefCleanup then pcall(env.MilkGefCleanup) end
+
+local alive = true
+local conns = {}
+local function track(c) table.insert(conns, c) return c end
+
+local cfg = {
+	hammer = "hammer",
+	radius = 10,
+	layers = 2,
+	width = 4,
+	height = 4,
+	delay = 0.15,
+	roof = false,
+	door = true,
+	rotate = false,
+	returnAfter = true,
+	filter = "",
+	hideJunk = true,
+	ignore = "door,gate,window,hatch",
+	enemyPattern = "gef",
+	espPlayers = false,
+	espEnemies = false,
+	espItems = false,
+	espDist = 400,
+}
+local state = { learning = false, template = nil, building = false, lastClick = 0, fallback = nil, grabbing = false }
+
+local BG = Color3.fromRGB(13, 14, 18)
+local SURFACE = Color3.fromRGB(21, 23, 29)
+local SURFACE2 = Color3.fromRGB(31, 34, 43)
+local ACCENT = Color3.fromRGB(255, 138, 61)
+local TEXT = Color3.fromRGB(232, 234, 240)
+local MUTED = Color3.fromRGB(139, 144, 158)
+
+local function getRoot()
+	local c = player.Character
+	return c and c:FindFirstChild("HumanoidRootPart")
+end
+
+local function getHum()
+	local c = player.Character
+	return c and c:FindFirstChildOfClass("Humanoid")
+end
+
+local function tp(cf)
+	local r = getRoot()
+	if not r then return false end
+	r.AssemblyLinearVelocity = Vector3.zero
+	r.CFrame = cf
+	return true
+end
+
+local function tween(inst, props, t)
+	TweenService:Create(inst, TweenInfo.new(t or 0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), props):Play()
+end
+
+local function create(class, props, parent)
+	local inst = Instance.new(class)
+	for k, v in pairs(props) do inst[k] = v end
+	if parent then inst.Parent = parent end
+	return inst
+end
+
+local function corner(inst, r)
+	return create("UICorner", { CornerRadius = UDim.new(0, r or 8) }, inst)
+end
+
+local function stroke(inst, color, th)
+	return create("UIStroke", { Color = color, Thickness = th or 1, ApplyStrokeMode = Enum.ApplyStrokeMode.Border }, inst)
+end
+
+local gui = create("ScreenGui", {
+	Name = "MilkGEF",
+	ResetOnSpawn = false,
+	ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
+	IgnoreGuiInset = true,
+})
+do
+	if syn and syn.protect_gui then pcall(syn.protect_gui, gui) end
+	local parented = false
+	if gethui then
+		parented = pcall(function() gui.Parent = gethui() end) and gui.Parent ~= nil
+	end
+	if not parented then
+		parented = pcall(function() gui.Parent = cr(game:GetService("CoreGui")) end) and gui.Parent ~= nil
+	end
+	if not parented then gui.Parent = player:WaitForChild("PlayerGui") end
+end
+
+local toast = create("TextLabel", {
+	AnchorPoint = Vector2.new(0.5, 1),
+	Position = UDim2.new(0.5, 0, 1, -30),
+	Size = UDim2.fromOffset(320, 34),
+	BackgroundColor3 = SURFACE,
+	BackgroundTransparency = 1,
+	TextTransparency = 1,
+	Text = "",
+	TextColor3 = TEXT,
+	Font = Enum.Font.GothamMedium,
+	TextSize = 14,
+	ZIndex = 20,
+}, gui)
+corner(toast, 8)
+
+local toastId = 0
+local function notify(msg)
+	toastId += 1
+	local id = toastId
+	toast.Text = msg
+	tween(toast, { BackgroundTransparency = 0, TextTransparency = 0 }, 0.15)
+	task.delay(2.6, function()
+		if alive and toastId == id then
+			tween(toast, { BackgroundTransparency = 1, TextTransparency = 1 }, 0.3)
+		end
+	end)
+end
+
+local function safe(fn)
+	task.spawn(function()
+		local ok, err = pcall(fn)
+		if not ok then notify("error: " .. tostring(err)) end
+	end)
+end
+
+local main = create("Frame", {
+	Size = UDim2.fromOffset(580, 0),
+	Position = UDim2.new(0.5, -290, 0.5, -195),
+	BackgroundColor3 = BG,
+	BorderSizePixel = 0,
+	ClipsDescendants = true,
+}, gui)
+corner(main, 12)
+stroke(main, Color3.fromRGB(44, 47, 58))
+
+local header = create("Frame", { Size = UDim2.new(1, 0, 0, 42), BackgroundColor3 = SURFACE, BorderSizePixel = 0 }, main)
+create("TextLabel", {
+	Size = UDim2.fromOffset(60, 42), Position = UDim2.fromOffset(16, 0), BackgroundTransparency = 1,
+	Text = "GEF", TextColor3 = ACCENT, Font = Enum.Font.GothamBlack, TextSize = 20,
+	TextXAlignment = Enum.TextXAlignment.Left,
+}, header)
+create("TextLabel", {
+	Size = UDim2.fromOffset(200, 42), Position = UDim2.fromOffset(64, 0), BackgroundTransparency = 1,
+	Text = "milk // giant evil face", TextColor3 = MUTED, Font = Enum.Font.Gotham, TextSize = 12,
+	TextXAlignment = Enum.TextXAlignment.Left,
+}, header)
+
+local btnMin = create("TextButton", {
+	Size = UDim2.fromOffset(28, 28), Position = UDim2.new(1, -72, 0.5, -14), BackgroundColor3 = SURFACE2,
+	Text = "-", TextColor3 = TEXT, Font = Enum.Font.GothamBold, TextSize = 16, AutoButtonColor = false, BorderSizePixel = 0,
+}, header)
+corner(btnMin, 7)
+local btnClose = create("TextButton", {
+	Size = UDim2.fromOffset(28, 28), Position = UDim2.new(1, -38, 0.5, -14), BackgroundColor3 = SURFACE2,
+	Text = "x", TextColor3 = TEXT, Font = Enum.Font.GothamBold, TextSize = 14, AutoButtonColor = false, BorderSizePixel = 0,
+}, header)
+corner(btnClose, 7)
+
+local rail = create("Frame", {
+	Size = UDim2.new(0, 128, 1, -42), Position = UDim2.fromOffset(0, 42), BackgroundColor3 = SURFACE, BorderSizePixel = 0,
+}, main)
+create("UIListLayout", { Padding = UDim.new(0, 4), SortOrder = Enum.SortOrder.LayoutOrder }, rail)
+create("UIPadding", { PaddingTop = UDim.new(0, 10), PaddingLeft = UDim.new(0, 8), PaddingRight = UDim.new(0, 8) }, rail)
+
+local body = create("Frame", {
+	Size = UDim2.new(1, -128, 1, -42), Position = UDim2.fromOffset(128, 42), BackgroundTransparency = 1,
+}, main)
+
+do
+	local dragging, dragStart, startPos = false, nil, nil
+	track(header.InputBegan:Connect(function(i)
+		if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
+			dragging = true
+			dragStart = i.Position
+			startPos = main.Position
+		end
+	end))
+	track(UIS.InputChanged:Connect(function(i)
+		if dragging and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then
+			local d = i.Position - dragStart
+			main.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + d.X, startPos.Y.Scale, startPos.Y.Offset + d.Y)
+		end
+	end))
+	track(UIS.InputEnded:Connect(function(i)
+		if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
+			dragging = false
+		end
+	end))
+end
+
+local function hover(btn, base)
+	track(btn.MouseEnter:Connect(function() tween(btn, { BackgroundColor3 = base:Lerp(Color3.new(1, 1, 1), 0.1) }) end))
+	track(btn.MouseLeave:Connect(function() tween(btn, { BackgroundColor3 = base }) end))
+end
+hover(btnMin, SURFACE2)
+hover(btnClose, SURFACE2)
+
+local function makeSection(parent, text)
+	return create("TextLabel", {
+		Size = UDim2.new(1, 0, 0, 18), BackgroundTransparency = 1, Text = text, TextColor3 = MUTED,
+		Font = Enum.Font.GothamBold, TextSize = 11, TextXAlignment = Enum.TextXAlignment.Left,
+	}, parent)
+end
+
+local function makeLabel(parent, text, height)
+	return create("TextLabel", {
+		Size = UDim2.new(1, 0, 0, height or 34), BackgroundColor3 = SURFACE2, BorderSizePixel = 0,
+		Text = text, TextColor3 = TEXT, Font = Enum.Font.Gotham, TextSize = 12, TextWrapped = true,
+		TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top,
+	}, parent)
+end
+
+local function padLabel(lbl)
+	corner(lbl, 8)
+	create("UIPadding", { PaddingLeft = UDim.new(0, 12), PaddingRight = UDim.new(0, 12), PaddingTop = UDim.new(0, 8), PaddingBottom = UDim.new(0, 8) }, lbl)
+	return lbl
+end
+
+local function makeButton(parent, text, cb, accent)
+	local base = accent and ACCENT or SURFACE2
+	local b = create("TextButton", {
+		Size = UDim2.new(1, 0, 0, 34), BackgroundColor3 = base, Text = text,
+		TextColor3 = accent and Color3.fromRGB(24, 14, 8) or TEXT, Font = Enum.Font.GothamSemibold,
+		TextSize = 13, AutoButtonColor = false, BorderSizePixel = 0,
+	}, parent)
+	corner(b, 8)
+	hover(b, base)
+	track(b.MouseButton1Click:Connect(function() safe(cb) end))
+	return b
+end
+
+local function makeToggle(parent, text, default, cb)
+	local holder = create("TextButton", {
+		Size = UDim2.new(1, 0, 0, 34), BackgroundColor3 = SURFACE2, Text = "", AutoButtonColor = false, BorderSizePixel = 0,
+	}, parent)
+	corner(holder, 8)
+	create("TextLabel", {
+		Size = UDim2.new(1, -66, 1, 0), Position = UDim2.fromOffset(12, 0), BackgroundTransparency = 1, Text = text,
+		TextColor3 = TEXT, Font = Enum.Font.GothamMedium, TextSize = 13, TextXAlignment = Enum.TextXAlignment.Left,
+	}, holder)
+	local pill = create("Frame", {
+		Size = UDim2.fromOffset(38, 20), Position = UDim2.new(1, -50, 0.5, -10),
+		BackgroundColor3 = default and ACCENT or BG, BorderSizePixel = 0,
+	}, holder)
+	corner(pill, 10)
+	local knob = create("Frame", {
+		Size = UDim2.fromOffset(14, 14), Position = default and UDim2.fromOffset(21, 3) or UDim2.fromOffset(3, 3),
+		BackgroundColor3 = TEXT, BorderSizePixel = 0,
+	}, pill)
+	corner(knob, 7)
+	local on = default
+	track(holder.MouseButton1Click:Connect(function()
+		on = not on
+		tween(pill, { BackgroundColor3 = on and ACCENT or BG })
+		tween(knob, { Position = on and UDim2.fromOffset(21, 3) or UDim2.fromOffset(3, 3) })
+		safe(function() cb(on) end)
+	end))
+end
+
+local function makeSlider(parent, text, min, max, default, step, cb)
+	local holder = create("Frame", { Size = UDim2.new(1, 0, 0, 52), BackgroundColor3 = SURFACE2, BorderSizePixel = 0 }, parent)
+	corner(holder, 8)
+	create("TextLabel", {
+		Size = UDim2.new(1, -80, 0, 22), Position = UDim2.fromOffset(12, 4), BackgroundTransparency = 1, Text = text,
+		TextColor3 = TEXT, Font = Enum.Font.GothamMedium, TextSize = 13, TextXAlignment = Enum.TextXAlignment.Left,
+	}, holder)
+	local valueLbl = create("TextLabel", {
+		Size = UDim2.fromOffset(60, 22), Position = UDim2.new(1, -72, 0, 4), BackgroundTransparency = 1,
+		Text = tostring(default), TextColor3 = ACCENT, Font = Enum.Font.GothamBold, TextSize = 13,
+		TextXAlignment = Enum.TextXAlignment.Right,
+	}, holder)
+	local bar = create("Frame", {
+		Size = UDim2.new(1, -24, 0, 6), Position = UDim2.new(0, 12, 0, 36), BackgroundColor3 = BG, BorderSizePixel = 0,
+	}, holder)
+	corner(bar, 3)
+	local fill = create("Frame", {
+		Size = UDim2.new((default - min) / (max - min), 0, 1, 0), BackgroundColor3 = ACCENT, BorderSizePixel = 0,
+	}, bar)
+	corner(fill, 3)
+	local hit = create("TextButton", {
+		Size = UDim2.new(1, 0, 0, 26), Position = UDim2.fromOffset(0, 26), BackgroundTransparency = 1, Text = "",
+	}, holder)
+	local dragging = false
+	local function setFromX(x)
+		local a = math.clamp((x - bar.AbsolutePosition.X) / math.max(bar.AbsoluteSize.X, 1), 0, 1)
+		local v = min + a * (max - min)
+		v = math.clamp(math.floor(v / step + 0.5) * step, min, max)
+		fill.Size = UDim2.new((v - min) / (max - min), 0, 1, 0)
+		valueLbl.Text = tostring(math.floor(v * 100 + 0.5) / 100)
+		cb(v)
+	end
+	track(hit.InputBegan:Connect(function(i)
+		if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
+			dragging = true
+			setFromX(i.Position.X)
+		end
+	end))
+	track(UIS.InputChanged:Connect(function(i)
+		if dragging and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then
+			setFromX(i.Position.X)
+		end
+	end))
+	track(UIS.InputEnded:Connect(function(i)
+		if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
+			dragging = false
+		end
+	end))
+end
+
+local function makeInput(parent, placeholder, default, cb, live)
+	local box = create("TextBox", {
+		Size = UDim2.new(1, 0, 0, 34), BackgroundColor3 = SURFACE2, Text = default or "", PlaceholderText = placeholder,
+		PlaceholderColor3 = MUTED, TextColor3 = TEXT, Font = Enum.Font.GothamMedium, TextSize = 13, ClearTextOnFocus = false,
+		TextXAlignment = Enum.TextXAlignment.Left, BorderSizePixel = 0,
+	}, parent)
+	corner(box, 8)
+	create("UIPadding", { PaddingLeft = UDim.new(0, 12), PaddingRight = UDim.new(0, 12) }, box)
+	if live then
+		track(box:GetPropertyChangedSignal("Text"):Connect(function() cb(box.Text) end))
+	else
+		track(box.FocusLost:Connect(function() cb(box.Text) end))
+	end
+	return box
+end
+
+local pages, tabButtons, currentTab = {}, {}, nil
+local renderItems, refreshPlayers
+
+local function newPage(name)
+	local sf = create("ScrollingFrame", {
+		Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 3,
+		ScrollBarImageColor3 = ACCENT, AutomaticCanvasSize = Enum.AutomaticSize.Y, CanvasSize = UDim2.new(), Visible = false,
+	}, body)
+	create("UIListLayout", { Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder }, sf)
+	create("UIPadding", {
+		PaddingTop = UDim.new(0, 12), PaddingLeft = UDim.new(0, 12), PaddingRight = UDim.new(0, 14), PaddingBottom = UDim.new(0, 12),
+	}, sf)
+	pages[name] = sf
+	return sf
+end
+
+local function switchTab(name)
+	currentTab = name
+	for n, pg in pairs(pages) do pg.Visible = (n == name) end
+	for n, t in pairs(tabButtons) do
+		local active = (n == name)
+		tween(t.btn, { TextColor3 = active and ACCENT or MUTED, BackgroundTransparency = active and 0 or 1 }, 0.15)
+		t.bar.Visible = active
+	end
+	if name == "Items" and renderItems then renderItems() end
+	if name == "Players" and refreshPlayers then refreshPlayers() end
+end
+
+local function newTab(name, order)
+	local btn = create("TextButton", {
+		Size = UDim2.new(1, 0, 0, 34), BackgroundColor3 = SURFACE2, BackgroundTransparency = 1, Text = "   " .. string.lower(name),
+		TextColor3 = MUTED, Font = Enum.Font.GothamSemibold, TextSize = 13, TextXAlignment = Enum.TextXAlignment.Left,
+		AutoButtonColor = false, BorderSizePixel = 0, LayoutOrder = order,
+	}, rail)
+	corner(btn, 8)
+	local bar = create("Frame", {
+		Size = UDim2.fromOffset(3, 18), Position = UDim2.new(0, 0, 0.5, -9), BackgroundColor3 = ACCENT, BorderSizePixel = 0, Visible = false,
+	}, btn)
+	corner(bar, 2)
+	tabButtons[name] = { btn = btn, bar = bar }
+	track(btn.MouseButton1Click:Connect(function() switchTab(name) end))
+end
+
+newTab("Items", 1)
+newTab("House", 2)
+newTab("ESP", 3)
+newTab("Players", 4)
+newTab("System", 5)
+
+-- items ---------------------------------------------------------------------
+
+local items, enemies, scanned, dirty, scanToken = {}, {}, false, true, 0
+
+local function posOf(inst)
+	local cur = inst
+	if inst:IsA("ProximityPrompt") or inst:IsA("ClickDetector") then cur = inst.Parent end
+	if not cur then return nil end
+	if cur:IsA("BasePart") then return cur.Position end
+	if cur:IsA("Attachment") then return cur.WorldPosition end
+	if cur:IsA("Model") then
+		local ok, cf = pcall(function() return cur:GetPivot() end)
+		if ok then return cf.Position end
+	end
+	local p = cur:FindFirstChildWhichIsA("BasePart", true)
+	return p and p.Position
+end
+
+local function inCharacter(inst)
+	local m = inst:FindFirstAncestorOfClass("Model")
+	while m do
+		if Players:GetPlayerFromCharacter(m) then return true end
+		m = m:FindFirstAncestorOfClass("Model")
+	end
+	return false
+end
+
+local function labelFor(inst)
+	if inst:IsA("ProximityPrompt") then
+		local model = inst:FindFirstAncestorOfClass("Model")
+		local base = (inst.ObjectText ~= "" and inst.ObjectText) or (model and model.Name) or (inst.Parent and inst.Parent.Name) or "prompt"
+		if inst.ActionText ~= "" then return base .. " - " .. inst.ActionText end
+		return base
+	elseif inst:IsA("ClickDetector") then
+		return (inst.Parent and inst.Parent.Name or "click") .. " - click"
+	end
+	return inst.Name
+end
+
+local function ignoredBy(inst, label)
+	if not cfg.hideJunk or cfg.ignore == "" then return false end
+	local hay = string.lower(label)
+	local par = inst.Parent
+	local depth = 0
+	while par and par ~= Workspace and depth < 3 do
+		hay = hay .. " " .. string.lower(par.Name)
+		par = par.Parent
+		depth += 1
+	end
+	for word in string.gmatch(string.lower(cfg.ignore), "[^,%s]+") do
+		if string.find(hay, word, 1, true) then return true end
+	end
+	return false
+end
+
+local function partOf(inst)
+	local cur = inst
+	if inst:IsA("ProximityPrompt") or inst:IsA("ClickDetector") then cur = inst.Parent end
+	if not cur then return nil end
+	if cur:IsA("BasePart") or cur:IsA("Attachment") then return cur end
+	if cur:IsA("Tool") then
+		return cur:FindFirstChild("Handle") or cur:FindFirstChildWhichIsA("BasePart", true)
+	end
+	if cur:IsA("Model") then return cur.PrimaryPart or cur:FindFirstChildWhichIsA("BasePart", true) end
+	return cur:FindFirstChildWhichIsA("BasePart", true)
+end
+
+local function consider(inst)
+	if not alive or items[inst] or not inst.Parent then return end
+	if inst:IsA("Humanoid") then
+		local m = inst.Parent
+		if m and m:IsA("Model") and not Players:GetPlayerFromCharacter(m) then enemies[m] = true end
+		return
+	end
+	local pat = string.lower(cfg.enemyPattern)
+	if pat ~= "" and inst:IsA("Model") and string.find(string.lower(inst.Name), pat, 1, true)
+		and not Players:GetPlayerFromCharacter(inst) then
+		enemies[inst] = true
+		return
+	end
+	local kind
+	if inst:IsA("ProximityPrompt") then kind = "prompt"
+	elseif inst:IsA("ClickDetector") then kind = "click"
+	elseif inst:IsA("Tool") then kind = "tool"
+	else return end
+	if inCharacter(inst) then return end
+	local label = labelFor(inst)
+	items[inst] = { kind = kind, label = label }
+	dirty = true
+	if scanned and cfg.filter ~= "" and string.find(string.lower(label), string.lower(cfg.filter), 1, true)
+		and (kind == "tool" or not ignoredBy(inst, label)) then
+		notify("found: " .. label)
+	end
+end
+
+local function fullScan()
+	scanToken += 1
+	local token = scanToken
+	scanned = false
+	items = {}
+	enemies = {}
+	local all = Workspace:GetDescendants()
+	for i, inst in ipairs(all) do
+		if not alive or token ~= scanToken then return end
+		consider(inst)
+		if i % 500 == 0 then task.wait() end
+	end
+	scanned = true
+	dirty = true
+	if currentTab == "Items" then renderItems() end
+end
+
+local function grab(inst, entry)
+	if state.grabbing then return end
+	local root = getRoot()
+	if not root then notify("no character") return end
+	if not inst.Parent then notify("item is gone") return end
+	local pos = posOf(inst)
+	if not pos then notify("no position for item") return end
+	state.grabbing = true
+	local origin = root.CFrame
+	tp(CFrame.new(pos + Vector3.new(0, 3, 0)))
+	task.wait(0.25)
+	if entry.kind == "prompt" then
+		local hold = inst.HoldDuration
+		pcall(function() inst.HoldDuration = 0 end)
+		for _ = 1, 3 do
+			if fireproximityprompt then pcall(fireproximityprompt, inst) end
+			task.wait(0.12)
+		end
+		pcall(function() inst.HoldDuration = hold end)
+	elseif entry.kind == "click" then
+		for _ = 1, 2 do
+			if fireclickdetector then pcall(fireclickdetector, inst) end
+			task.wait(0.12)
+		end
+	else
+		local handle = inst:FindFirstChild("Handle") or inst:FindFirstChildWhichIsA("BasePart", true)
+		if handle and firetouchinterest then
+			pcall(firetouchinterest, root, handle, 0)
+			task.wait(0.1)
+			pcall(firetouchinterest, root, handle, 1)
+		end
+		task.wait(0.2)
+	end
+	task.wait(0.3)
+	if cfg.returnAfter then tp(origin) end
+	local taken = (not inst:IsDescendantOf(Workspace)) or inCharacter(inst)
+	notify((taken and "grabbed: " or "tried: ") .. entry.label)
+	dirty = true
+	state.grabbing = false
+end
+
+local pItems = newPage("Items")
+makeSection(pItems, "ITEM FINDER")
+makeInput(pItems, "filter by name (empty = everything)", "", function(t)
+	cfg.filter = t
+	if renderItems then renderItems() end
+end, true)
+makeToggle(pItems, "return to start after grabbing", true, function(v) cfg.returnAfter = v end)
+makeToggle(pItems, "hide doors and junk", true, function(v)
+	cfg.hideJunk = v
+	if renderItems then renderItems() end
+end)
+makeInput(pItems, "ignore words, comma separated", cfg.ignore, function(t)
+	cfg.ignore = t
+	if renderItems then renderItems() end
+end, true)
+makeButton(pItems, "rescan world", function() fullScan() end)
+local countLbl = padLabel(makeLabel(pItems, "scanning...", 32))
+local listFrame = create("Frame", { Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1 }, pItems)
+create("UIListLayout", { Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder }, listFrame)
+
+local function makeRow(parent, labelText, btnText, cb, order)
+	local row = create("Frame", { Size = UDim2.new(1, 0, 0, 36), BackgroundColor3 = SURFACE2, BorderSizePixel = 0, LayoutOrder = order or 0 }, parent)
+	corner(row, 8)
+	create("TextLabel", {
+		Size = UDim2.new(1, -104, 1, 0), Position = UDim2.fromOffset(12, 0), BackgroundTransparency = 1, Text = labelText,
+		TextColor3 = TEXT, Font = Enum.Font.GothamMedium, TextSize = 12, TextXAlignment = Enum.TextXAlignment.Left,
+		TextTruncate = Enum.TextTruncate.AtEnd,
+	}, row)
+	local b = create("TextButton", {
+		Size = UDim2.fromOffset(86, 26), Position = UDim2.new(1, -94, 0.5, -13), BackgroundColor3 = ACCENT, Text = btnText,
+		TextColor3 = Color3.fromRGB(24, 14, 8), Font = Enum.Font.GothamBold, TextSize = 12, AutoButtonColor = false, BorderSizePixel = 0,
+	}, row)
+	corner(b, 6)
+	hover(b, ACCENT)
+	track(b.MouseButton1Click:Connect(function() safe(cb) end))
+	return row
+end
+
+renderItems = function()
+	for _, c in ipairs(listFrame:GetChildren()) do
+		if c:IsA("Frame") then c:Destroy() end
+	end
+	local root = getRoot()
+	local origin = root and root.Position or Vector3.zero
+	local f = string.lower(cfg.filter)
+	local arr = {}
+	for inst, e in pairs(items) do
+		if inst.Parent and (f == "" or string.find(string.lower(e.label), f, 1, true))
+			and (e.kind == "tool" or not ignoredBy(inst, e.label)) then
+			local p = posOf(inst)
+			if p then table.insert(arr, { inst = inst, e = e, d = (p - origin).Magnitude }) end
+		end
+	end
+	table.sort(arr, function(a, b) return a.d < b.d end)
+	local shown = math.min(#arr, 80)
+	countLbl.Text = (scanned and "" or "scanning... ") .. #arr .. " match, showing " .. shown .. " nearest"
+	for i = 1, shown do
+		local a = arr[i]
+		makeRow(listFrame, string.format("%s  [%dm]", a.e.label, math.floor(a.d)), "tp + grab", function() grab(a.inst, a.e) end, i)
+	end
+end
+
+track(Workspace.DescendantAdded:Connect(function(inst)
+	if scanned then task.defer(consider, inst) end
+end))
+track(Workspace.DescendantRemoving:Connect(function(inst)
+	enemies[inst] = nil
+	if items[inst] then
+		items[inst] = nil
+		dirty = true
+	end
+end))
+task.spawn(function()
+	while alive do
+		task.wait(1.5)
+		if dirty and currentTab == "Items" then
+			dirty = false
+			renderItems()
+		end
+	end
+end)
+
+-- house ---------------------------------------------------------------------
+
+local statusLbl
+
+local function setStatus(t)
+	if statusLbl then statusLbl.Text = t end
+end
+
+local function hammerTool()
+	local c = player.Character
+	if not c then return nil end
+	local needle = string.lower(cfg.hammer)
+	for _, t in ipairs(c:GetChildren()) do
+		if t:IsA("Tool") and string.find(string.lower(t.Name), needle, 1, true) then return t end
+	end
+	return nil
+end
+
+local function equipHammer()
+	if hammerTool() then return true end
+	local bp = player:FindFirstChildOfClass("Backpack")
+	local hum = getHum()
+	if not bp or not hum then return false end
+	local needle = string.lower(cfg.hammer)
+	for _, t in ipairs(bp:GetChildren()) do
+		if t:IsA("Tool") and string.find(string.lower(t.Name), needle, 1, true) then
+			hum:EquipTool(t)
+			task.wait(0.3)
+			return true
+		end
+	end
+	return false
+end
+
+local function hasSpatial(packed)
+	for i = 1, packed.n do
+		local ty = typeof(packed[i])
+		if ty == "CFrame" or ty == "Vector3" then return true end
+	end
+	return false
+end
+
+local function describe(rec)
+	local types = {}
+	for i = 1, rec.args.n do types[i] = typeof(rec.args[i]) end
+	return rec.remote.Name .. "(" .. table.concat(types, ", ") .. ")"
+end
+
+local function commit(rec)
+	if not state.learning then return end
+	state.learning = false
+	state.fallback = nil
+	state.template = rec
+	setStatus("learned: " .. describe(rec))
+	notify("hammer learned")
+end
+
+local bridge = env.MilkGefBridge
+if not bridge then
+	bridge = {}
+	env.MilkGefBridge = bridge
+end
+
+if not bridge.hooked and hookmetamethod and getnamecallmethod then
+	bridge.hooked = true
+	local nc = newcclosure or function(f) return f end
+	local old
+	old = hookmetamethod(game, "__namecall", nc(function(self, ...)
+		local method = getnamecallmethod()
+		local cap = bridge.capture
+		if cap and (method == "FireServer" or method == "InvokeServer") and not checkcaller() then
+			pcall(cap, self, method, ...)
+			if setnamecallmethod then setnamecallmethod(method) end
+		end
+		return old(self, ...)
+	end))
+end
+
+bridge.capture = function(remote, method, ...)
+	if not alive or not state.learning then return end
+	if tick() - state.lastClick > 0.9 then return end
+	if typeof(remote) ~= "Instance" then return end
+	local cn = remote.ClassName
+	if cn ~= "RemoteEvent" and cn ~= "RemoteFunction" then return end
+	local rec = { remote = remote, method = method, args = table.pack(...) }
+	if hasSpatial(rec.args) then
+		task.defer(commit, rec)
+	elseif not state.fallback then
+		state.fallback = rec
+	end
+end
+
+track(UIS.InputBegan:Connect(function(i, gpe)
+	if gpe or not state.learning then return end
+	if i.UserInputType ~= Enum.UserInputType.MouseButton1 and i.UserInputType ~= Enum.UserInputType.Touch then return end
+	if not hammerTool() then return end
+	state.lastClick = tick()
+	state.fallback = nil
+	task.delay(0.9, function()
+		if state.learning and state.fallback then commit(state.fallback) end
+	end)
+end))
+
+local function blueprint(center, ground)
+	local out = {}
+	local r, w, h = cfg.radius, cfg.width, cfg.height
+	local n = math.max(1, math.floor((2 * r) / w))
+	local dirs = { Vector3.new(0, 0, 1), Vector3.new(0, 0, -1), Vector3.new(1, 0, 0), Vector3.new(-1, 0, 0) }
+	for layer = 1, cfg.layers do
+		local y = ground + (layer - 0.5) * h
+		for si, dir in ipairs(dirs) do
+			local tangent = Vector3.new(-dir.Z, 0, dir.X)
+			for k = 1, n do
+				local skip = cfg.door and si == 1 and layer <= 2 and k == math.ceil(n / 2)
+				if not skip then
+					local off = -r + (k - 0.5) * (2 * r / n)
+					local pos = Vector3.new(center.X, y, center.Z) + dir * r + tangent * off
+					local cf = CFrame.lookAt(pos, pos + dir)
+					if cfg.rotate then cf = cf * CFrame.Angles(0, math.rad(90), 0) end
+					table.insert(out, cf)
+				end
+			end
+		end
+	end
+	if cfg.roof then
+		local y = ground + cfg.layers * h + h / 2
+		local gx = math.max(1, math.floor((2 * r) / w))
+		for ix = 1, gx do
+			for iz = 1, gx do
+				local ox = -r + (ix - 0.5) * (2 * r / gx)
+				local oz = -r + (iz - 0.5) * (2 * r / gx)
+				table.insert(out, CFrame.new(center.X + ox, y, center.Z + oz) * CFrame.Angles(math.rad(90), 0, 0))
+			end
+		end
+	end
+	return out
+end
+
+local function firePiece(tpl, cf)
+	local remote = tpl.remote
+	if not remote or not remote.Parent then return false end
+	local args = table.pack(table.unpack(tpl.args, 1, tpl.args.n))
+	local replaced = false
+	for i = 1, args.n do
+		local ty = typeof(args[i])
+		if not replaced and ty == "CFrame" then
+			args[i] = cf
+			replaced = true
+		elseif not replaced and ty == "Vector3" then
+			args[i] = cf.Position
+			replaced = true
+		end
+	end
+	if tpl.method == "InvokeServer" then
+		task.spawn(function() pcall(remote.InvokeServer, remote, table.unpack(args, 1, args.n)) end)
+	else
+		pcall(remote.FireServer, remote, table.unpack(args, 1, args.n))
+	end
+	return true
+end
+
+local function buildHouse()
+	if state.building then return end
+	local tpl = state.template
+	if not tpl then notify("learn the hammer first") return end
+	local root = getRoot()
+	if not root then notify("no character") return end
+	state.building = true
+	equipHammer()
+	local center = root.Position
+	local rp = RaycastParams.new()
+	rp.FilterType = Enum.RaycastFilterType.Exclude
+	rp.FilterDescendantsInstances = { player.Character }
+	local hit = Workspace:Raycast(center, Vector3.new(0, -30, 0), rp)
+	local ground = hit and hit.Position.Y or (center.Y - 3)
+	local pieces = blueprint(center, ground)
+	for i, cf in ipairs(pieces) do
+		if not state.building or not alive then break end
+		if not firePiece(tpl, cf) then
+			notify("remote vanished, relearn")
+			break
+		end
+		setStatus("building " .. i .. "/" .. #pieces)
+		task.wait(cfg.delay)
+	end
+	state.building = false
+	setStatus("learned: " .. describe(tpl))
+	notify("house pass done")
+end
+
+local pHouse = newPage("House")
+makeSection(pHouse, "AUTO HOUSE")
+statusLbl = padLabel(makeLabel(pHouse, "template: none. press learn, equip the hammer, place one piece by hand.", 52))
+makeInput(pHouse, "hammer tool name", cfg.hammer, function(t)
+	if t ~= "" then cfg.hammer = t end
+end)
+makeButton(pHouse, "1. learn hammer", function()
+	if not hookmetamethod then notify("executor has no hookmetamethod") return end
+	state.learning = true
+	state.fallback = nil
+	setStatus("listening... equip the hammer and place one piece")
+	equipHammer()
+end, true)
+makeButton(pHouse, "2. build house around me", function() buildHouse() end, true)
+makeButton(pHouse, "stop building", function() state.building = false end)
+makeButton(pHouse, "equip hammer", function()
+	if not equipHammer() then notify("no tool matching that name") end
+end)
+makeSlider(pHouse, "radius", 4, 24, cfg.radius, 1, function(v) cfg.radius = v end)
+makeSlider(pHouse, "layers", 1, 4, cfg.layers, 1, function(v) cfg.layers = v end)
+makeSlider(pHouse, "piece width", 2, 10, cfg.width, 0.5, function(v) cfg.width = v end)
+makeSlider(pHouse, "piece height", 2, 10, cfg.height, 0.5, function(v) cfg.height = v end)
+makeSlider(pHouse, "delay per piece", 0.05, 0.6, cfg.delay, 0.01, function(v) cfg.delay = v end)
+makeToggle(pHouse, "leave a door gap", true, function(v) cfg.door = v end)
+makeToggle(pHouse, "add roof", false, function(v) cfg.roof = v end)
+makeToggle(pHouse, "rotate walls 90", false, function(v) cfg.rotate = v end)
+
+-- players -------------------------------------------------------------------
+
+local lastCF
+local pPlayers = newPage("Players")
+makeSection(pPlayers, "TELEPORT TO PLAYER")
+makeButton(pPlayers, "back to where i was", function()
+	if lastCF then tp(lastCF) else notify("no saved position") end
+end)
+local plist = create("Frame", { Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1 }, pPlayers)
+create("UIListLayout", { Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder }, plist)
+
+refreshPlayers = function()
+	for _, c in ipairs(plist:GetChildren()) do
+		if c:IsA("Frame") then c:Destroy() end
+	end
+	local order = 0
+	for _, p in ipairs(Players:GetPlayers()) do
+		if p ~= player then
+			order += 1
+			makeRow(plist, p.DisplayName .. "  (@" .. p.Name .. ")", "teleport", function()
+				local tr = p.Character and p.Character:FindFirstChild("HumanoidRootPart")
+				local mr = getRoot()
+				if not tr or not mr then notify("player has no character") return end
+				lastCF = mr.CFrame
+				tp(tr.CFrame * CFrame.new(0, 0, 3))
+			end, order)
+		end
+	end
+	if order == 0 then
+		makeRow(plist, "nobody else in the server", "-", function() end, 1)
+	end
+end
+
+track(Players.PlayerAdded:Connect(function()
+	if currentTab == "Players" then refreshPlayers() end
+end))
+track(Players.PlayerRemoving:Connect(function()
+	task.defer(function()
+		if alive and currentTab == "Players" then refreshPlayers() end
+	end)
+end))
+
+-- esp -----------------------------------------------------------------------
+
+local espFolder = create("Folder", { Name = "esp" }, gui)
+local espObjs = {}
+local COL_PLAYER = Color3.fromRGB(110, 200, 255)
+local COL_ENEMY = Color3.fromRGB(255, 80, 80)
+local COL_ITEM = Color3.fromRGB(170, 255, 120)
+
+local function espFor(key, adornee, color, hlTarget)
+	local o = espObjs[key]
+	if o then
+		if o.gui.Adornee ~= adornee then o.gui.Adornee = adornee end
+		o.seen = true
+		return o
+	end
+	o = { seen = true }
+	o.gui = create("BillboardGui", {
+		Adornee = adornee, AlwaysOnTop = true, Size = UDim2.fromOffset(160, 34),
+		StudsOffset = Vector3.new(0, 2.5, 0), LightInfluence = 0,
+	}, espFolder)
+	o.label = create("TextLabel", {
+		Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Text = "", TextColor3 = color,
+		TextStrokeTransparency = 0.35, Font = Enum.Font.GothamBold, TextSize = 13,
+	}, o.gui)
+	if hlTarget then
+		o.hl = create("Highlight", {
+			Adornee = hlTarget, FillColor = color, FillTransparency = 0.82, OutlineColor = color,
+			DepthMode = Enum.HighlightDepthMode.AlwaysOnTop,
+		}, espFolder)
+	end
+	espObjs[key] = o
+	return o
+end
+
+local function espUpdate()
+	local cam = Workspace.CurrentCamera
+	if not cam then return end
+	local camPos = cam.CFrame.Position
+	for _, o in pairs(espObjs) do o.seen = false end
+
+	local function show(key, part, name, color, hlTarget)
+		if not part or not part.Parent then return end
+		local pos = part:IsA("Attachment") and part.WorldPosition or part.Position
+		local d = (pos - camPos).Magnitude
+		if d > cfg.espDist then return end
+		local o = espFor(key, part, color, hlTarget)
+		o.label.Text = name .. "\n" .. math.floor(d) .. "m"
+	end
+
+	if cfg.espPlayers then
+		for _, p in ipairs(Players:GetPlayers()) do
+			local c = p.Character
+			if p ~= player and c then
+				show(c, c:FindFirstChild("HumanoidRootPart") or c.PrimaryPart, p.DisplayName, COL_PLAYER, c)
+			end
+		end
+	end
+
+	if cfg.espEnemies then
+		for m in pairs(enemies) do
+			if m.Parent then
+				local part = m:FindFirstChild("HumanoidRootPart") or m.PrimaryPart or m:FindFirstChildWhichIsA("BasePart", true)
+				show(m, part, m.Name, COL_ENEMY, m)
+			end
+		end
+	end
+
+	if cfg.espItems then
+		local f = string.lower(cfg.filter)
+		local list = {}
+		for inst, e in pairs(items) do
+			if inst.Parent and (f == "" or string.find(string.lower(e.label), f, 1, true))
+				and (e.kind == "tool" or not ignoredBy(inst, e.label)) then
+				local part = partOf(inst)
+				if part then
+					local pos = part:IsA("Attachment") and part.WorldPosition or part.Position
+					local d = (pos - camPos).Magnitude
+					if d <= cfg.espDist then
+						table.insert(list, { inst = inst, part = part, label = e.label, d = d })
+					end
+				end
+			end
+		end
+		table.sort(list, function(a, b) return a.d < b.d end)
+		for i = 1, math.min(#list, 40) do
+			local a = list[i]
+			show(a.inst, a.part, a.label, COL_ITEM, nil)
+		end
+	end
+
+	for key, o in pairs(espObjs) do
+		if not o.seen then
+			pcall(function() o.gui:Destroy() end)
+			if o.hl then pcall(function() o.hl:Destroy() end) end
+			espObjs[key] = nil
+		end
+	end
+end
+
+task.spawn(function()
+	while alive do
+		pcall(espUpdate)
+		task.wait(0.15)
+	end
+end)
+
+local pEsp = newPage("ESP")
+makeSection(pEsp, "ESP")
+makeToggle(pEsp, "players", false, function(v) cfg.espPlayers = v end)
+makeToggle(pEsp, "enemies", false, function(v) cfg.espEnemies = v end)
+makeToggle(pEsp, "items (follows item filter)", false, function(v) cfg.espItems = v end)
+makeSlider(pEsp, "max distance", 50, 2000, cfg.espDist, 10, function(v) cfg.espDist = v end)
+makeInput(pEsp, "enemy name match (blank = humanoids only)", cfg.enemyPattern, function(t)
+	cfg.enemyPattern = t
+	task.spawn(fullScan)
+end)
+
+-- system --------------------------------------------------------------------
+
+local function cleanup()
+	alive = false
+	state.building = false
+	state.learning = false
+	bridge.capture = nil
+	for _, c in ipairs(conns) do pcall(function() c:Disconnect() end) end
+	conns = {}
+	pcall(function() gui:Destroy() end)
+end
+env.MilkGefCleanup = cleanup
+
+local pSys = newPage("System")
+makeSection(pSys, "SYSTEM")
+padLabel(makeLabel(pSys, "RightShift hides or shows the window. drag the header to move it.", 52))
+makeButton(pSys, "unload script", function() cleanup() end, true)
+
+-- window controls -----------------------------------------------------------
+
+local minimized = false
+track(btnMin.MouseButton1Click:Connect(function()
+	minimized = not minimized
+	rail.Visible = not minimized
+	body.Visible = not minimized
+	tween(main, { Size = UDim2.fromOffset(580, minimized and 42 or 390) }, 0.25)
+end))
+track(btnClose.MouseButton1Click:Connect(cleanup))
+track(UIS.InputBegan:Connect(function(i, gpe)
+	if gpe then return end
+	if i.KeyCode == Enum.KeyCode.RightShift then gui.Enabled = not gui.Enabled end
+end))
+
+TweenService:Create(main, TweenInfo.new(0.45, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Size = UDim2.fromOffset(580, 390) }):Play()
+switchTab("Items")
+task.spawn(fullScan)
