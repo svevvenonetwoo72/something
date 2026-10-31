@@ -1,1755 +1,1895 @@
-local cr = cloneref or function(x) return x end
-local Players = cr(game:GetService("Players"))
-local UIS = cr(game:GetService("UserInputService"))
-local TweenService = cr(game:GetService("TweenService"))
-local Workspace = cr(game:GetService("Workspace"))
-local player = Players.LocalPlayer
-local env = getgenv and getgenv() or _G
+--[[
+ .____                  ________ ___.    _____                           __                
+ |    |    __ _______   \_____  \\_ |___/ ____\_ __  ______ ____ _____ _/  |_  ___________ 
+ |    |   |  |  \__  \   /   |   \| __ \   __\  |  \/  ___// ___\\__  \\   __\/  _ \_  __ \
+ |    |___|  |  // __ \_/    |    \ \_\ \  | |  |  /\___ \\  \___ / __ \|  | (  <_> )  | \/
+ |_______ \____/(____  /\_______  /___  /__| |____//____  >\___  >____  /__|  \____/|__|   
+         \/          \/         \/    \/                \/     \/     \/                   
+          \_Welcome to LuaObfuscator.com   (Alpha 0.10.9) ~  Much Love, Ferib 
 
-if env.MilkGefCleanup then pcall(env.MilkGefCleanup) end
+]]--
 
-local alive = true
-local conns = {}
-local function track(c) table.insert(conns, c) return c end
-
-local cfg = {
-	hammer = "hammer",
-	radius = 10,
-	layers = 2,
-	width = 4,
-	height = 4,
-	delay = 0.15,
-	roof = false,
-	door = true,
-	rotate = false,
-	returnAfter = true,
-	filter = "",
-	wallHeight = 8,
-	hideJunk = true,
-	ignore = "door,gate,window,hatch",
-	enemyPattern = "gef",
-	espPlayers = false,
-	espEnemies = false,
-	espItems = false,
-	espDist = 400,
-}
-local state = { learning = false, template = nil, building = false, lastClick = 0, fallback = nil, grabbing = false }
-
-local BG = Color3.fromRGB(13, 14, 18)
-local SURFACE = Color3.fromRGB(21, 23, 29)
-local SURFACE2 = Color3.fromRGB(31, 34, 43)
-local ACCENT = Color3.fromRGB(255, 138, 61)
-local TEXT = Color3.fromRGB(232, 234, 240)
-local MUTED = Color3.fromRGB(139, 144, 158)
-
+local cr = cloneref or function(x)
+	return x;
+end;
+local Players = cr(game:GetService("Players"));
+local UIS = cr(game:GetService("UserInputService"));
+local TweenService = cr(game:GetService("TweenService"));
+local Workspace = cr(game:GetService("Workspace"));
+local player = Players.LocalPlayer;
+local env = (getgenv and getgenv()) or _G;
+if env.MilkGefCleanup then
+	pcall(env.MilkGefCleanup);
+end
+local alive = true;
+local conns = {};
+local function track(c)
+	table.insert(conns, c);
+	return c;
+end
+local cfg = {hammer="hammer",radius=10,layers=2,width=4,height=4,delay=0.15,roof=false,door=true,rotate=false,returnAfter=true,filter="",wallHeight=8,hideJunk=true,ignore="door,gate,window,hatch",enemyPattern="gef",espPlayers=false,espEnemies=false,espItems=false,espDist=400};
+local state = {learning=false,template=nil,building=false,lastClick=0,fallback=nil,grabbing=false};
+local BG = Color3.fromRGB(13, 14, 18);
+local SURFACE = Color3.fromRGB(21, 23, 29);
+local SURFACE2 = Color3.fromRGB(31, 34, 43);
+local ACCENT = Color3.fromRGB(255, 138, 61);
+local TEXT = Color3.fromRGB(232, 234, 240);
+local MUTED = Color3.fromRGB(139, 144, 158);
 local function getRoot()
-	local c = player.Character
-	return c and c:FindFirstChild("HumanoidRootPart")
+	local c = player.Character;
+	return c and c:FindFirstChild("HumanoidRootPart");
 end
-
 local function getHum()
-	local c = player.Character
-	return c and c:FindFirstChildOfClass("Humanoid")
+	local c = player.Character;
+	return c and c:FindFirstChildOfClass("Humanoid");
 end
-
 local function tp(cf)
-	local r = getRoot()
-	if not r then return false end
-	r.AssemblyLinearVelocity = Vector3.zero
-	r.CFrame = cf
-	return true
+	local r = getRoot();
+	if not r then
+		return false;
+	end
+	r.AssemblyLinearVelocity = Vector3.zero;
+	r.CFrame = cf;
+	return true;
 end
-
 local function tween(inst, props, t)
-	TweenService:Create(inst, TweenInfo.new(t or 0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), props):Play()
+	TweenService:Create(inst, TweenInfo.new(t or 0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), props):Play();
 end
-
 local function create(class, props, parent)
-	local inst = Instance.new(class)
-	for k, v in pairs(props) do inst[k] = v end
-	if parent then inst.Parent = parent end
-	return inst
+	local inst = Instance.new(class);
+	for k, v in pairs(props) do
+		inst[k] = v;
+	end
+	if parent then
+		inst.Parent = parent;
+	end
+	return inst;
 end
-
 local function corner(inst, r)
-	return create("UICorner", { CornerRadius = UDim.new(0, r or 8) }, inst)
+	return create("UICorner", {CornerRadius=UDim.new(0, r or 8)}, inst);
 end
-
 local function stroke(inst, color, th)
-	return create("UIStroke", { Color = color, Thickness = th or 1, ApplyStrokeMode = Enum.ApplyStrokeMode.Border }, inst)
+	return create("UIStroke", {Color=color,Thickness=(th or 1),ApplyStrokeMode=Enum.ApplyStrokeMode.Border}, inst);
 end
-
-local gui = create("ScreenGui", {
-	Name = "MilkGEF",
-	ResetOnSpawn = false,
-	ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
-	IgnoreGuiInset = true,
-})
+local gui = create("ScreenGui", {Name="MilkGEF",ResetOnSpawn=false,ZIndexBehavior=Enum.ZIndexBehavior.Sibling,IgnoreGuiInset=true});
 do
-	if syn and syn.protect_gui then pcall(syn.protect_gui, gui) end
-	local parented = false
+	if (syn and syn.protect_gui) then
+		pcall(syn.protect_gui, gui);
+	end
+	local parented = false;
 	if gethui then
-		parented = pcall(function() gui.Parent = gethui() end) and gui.Parent ~= nil
+		parented = pcall(function()
+			gui.Parent = gethui();
+		end) and (gui.Parent ~= nil);
 	end
 	if not parented then
-		parented = pcall(function() gui.Parent = cr(game:GetService("CoreGui")) end) and gui.Parent ~= nil
+		parented = pcall(function()
+			gui.Parent = cr(game:GetService("CoreGui"));
+		end) and (gui.Parent ~= nil);
 	end
-	if not parented then gui.Parent = player:WaitForChild("PlayerGui") end
+	if not parented then
+		gui.Parent = player:WaitForChild("PlayerGui");
+	end
 end
-
-local toast = create("TextLabel", {
-	AnchorPoint = Vector2.new(0.5, 1),
-	Position = UDim2.new(0.5, 0, 1, -30),
-	Size = UDim2.fromOffset(320, 34),
-	BackgroundColor3 = SURFACE,
-	BackgroundTransparency = 1,
-	TextTransparency = 1,
-	Text = "",
-	TextColor3 = TEXT,
-	Font = Enum.Font.GothamMedium,
-	TextSize = 14,
-	ZIndex = 20,
-}, gui)
-corner(toast, 8)
-
-local toastId = 0
+local toast = create("TextLabel", {AnchorPoint=Vector2.new(0.5, 1),Position=UDim2.new(0.5, 0, 1, -30),Size=UDim2.fromOffset(320, 34),BackgroundColor3=SURFACE,BackgroundTransparency=1,TextTransparency=1,Text="",TextColor3=TEXT,Font=Enum.Font.GothamMedium,TextSize=14,ZIndex=20}, gui);
+corner(toast, 8);
+local toastId = 0;
 local function notify(msg)
 	toastId += 1
-	local id = toastId
-	toast.Text = msg
-	tween(toast, { BackgroundTransparency = 0, TextTransparency = 0 }, 0.15)
+	local id = toastId;
+	toast.Text = msg;
+	tween(toast, {BackgroundTransparency=0,TextTransparency=0}, 0.15);
 	task.delay(2.6, function()
-		if alive and toastId == id then
-			tween(toast, { BackgroundTransparency = 1, TextTransparency = 1 }, 0.3)
+		if (alive and (toastId == id)) then
+			tween(toast, {BackgroundTransparency=1,TextTransparency=1}, 0.3);
 		end
-	end)
+	end);
 end
-
 local function safe(fn)
 	task.spawn(function()
-		local ok, err = pcall(fn)
-		if not ok then notify("error: " .. tostring(err)) end
-	end)
+		local ok, err = pcall(fn);
+		if not ok then
+			notify("error: " .. tostring(err));
+		end
+	end);
 end
-
-local main = create("Frame", {
-	Size = UDim2.fromOffset(580, 0),
-	Position = UDim2.new(0.5, -290, 0.5, -195),
-	BackgroundColor3 = BG,
-	BorderSizePixel = 0,
-	ClipsDescendants = true,
-}, gui)
-corner(main, 12)
-main.Visible = false
-stroke(main, Color3.fromRGB(44, 47, 58))
-
-local header = create("Frame", { Size = UDim2.new(1, 0, 0, 42), BackgroundColor3 = SURFACE, BorderSizePixel = 0 }, main)
-create("TextLabel", {
-	Size = UDim2.fromOffset(60, 42), Position = UDim2.fromOffset(16, 0), BackgroundTransparency = 1,
-	Text = "GEF", TextColor3 = ACCENT, Font = Enum.Font.GothamBlack, TextSize = 20,
-	TextXAlignment = Enum.TextXAlignment.Left,
-}, header)
-create("TextLabel", {
-	Size = UDim2.fromOffset(200, 42), Position = UDim2.fromOffset(64, 0), BackgroundTransparency = 1,
-	Text = "milk // giant evil face", TextColor3 = MUTED, Font = Enum.Font.Gotham, TextSize = 12,
-	TextXAlignment = Enum.TextXAlignment.Left,
-}, header)
-
-local goHome
-local btnMin = create("TextButton", {
-	Size = UDim2.fromOffset(28, 28), Position = UDim2.new(1, -72, 0.5, -14), BackgroundColor3 = SURFACE2,
-	Text = "-", TextColor3 = TEXT, Font = Enum.Font.GothamBold, TextSize = 16, AutoButtonColor = false, BorderSizePixel = 0,
-}, header)
-corner(btnMin, 7)
-local btnClose = create("TextButton", {
-	Size = UDim2.fromOffset(28, 28), Position = UDim2.new(1, -38, 0.5, -14), BackgroundColor3 = SURFACE2,
-	Text = "x", TextColor3 = TEXT, Font = Enum.Font.GothamBold, TextSize = 14, AutoButtonColor = false, BorderSizePixel = 0,
-}, header)
-corner(btnClose, 7)
-local btnHome = create("TextButton", {
-	Size = UDim2.fromOffset(46, 28), Position = UDim2.new(1, -124, 0.5, -14), BackgroundColor3 = ACCENT,
-	Text = "home", TextColor3 = Color3.fromRGB(24, 14, 8), Font = Enum.Font.GothamBold, TextSize = 12,
-	AutoButtonColor = false, BorderSizePixel = 0,
-}, header)
-corner(btnHome, 7)
-
-local rail = create("Frame", {
-	Size = UDim2.new(0, 128, 1, -42), Position = UDim2.fromOffset(0, 42), BackgroundColor3 = SURFACE, BorderSizePixel = 0,
-}, main)
-create("UIListLayout", { Padding = UDim.new(0, 4), SortOrder = Enum.SortOrder.LayoutOrder }, rail)
-create("UIPadding", { PaddingTop = UDim.new(0, 10), PaddingLeft = UDim.new(0, 8), PaddingRight = UDim.new(0, 8) }, rail)
-
-local body = create("Frame", {
-	Size = UDim2.new(1, -128, 1, -42), Position = UDim2.fromOffset(128, 42), BackgroundTransparency = 1,
-}, main)
-
+local main = create("Frame", {Size=UDim2.fromOffset(580, 0),Position=UDim2.new(0.5, -290, 0.5, -195),BackgroundColor3=BG,BorderSizePixel=0,ClipsDescendants=true}, gui);
+corner(main, 12);
+main.Visible = false;
+stroke(main, Color3.fromRGB(44, 47, 58));
+local header = create("Frame", {Size=UDim2.new(1, 0, 0, 42),BackgroundColor3=SURFACE,BorderSizePixel=0}, main);
+create("TextLabel", {Size=UDim2.fromOffset(60, 42),Position=UDim2.fromOffset(16, 0),BackgroundTransparency=1,Text="GEF",TextColor3=ACCENT,Font=Enum.Font.GothamBlack,TextSize=20,TextXAlignment=Enum.TextXAlignment.Left}, header);
+create("TextLabel", {Size=UDim2.fromOffset(200, 42),Position=UDim2.fromOffset(64, 0),BackgroundTransparency=1,Text="milk // giant evil face",TextColor3=MUTED,Font=Enum.Font.Gotham,TextSize=12,TextXAlignment=Enum.TextXAlignment.Left}, header);
+local goHome;
+local btnMin = create("TextButton", {Size=UDim2.fromOffset(28, 28),Position=UDim2.new(1, -72, 0.5, -14),BackgroundColor3=SURFACE2,Text="-",TextColor3=TEXT,Font=Enum.Font.GothamBold,TextSize=16,AutoButtonColor=false,BorderSizePixel=0}, header);
+corner(btnMin, 7);
+local btnClose = create("TextButton", {Size=UDim2.fromOffset(28, 28),Position=UDim2.new(1, -38, 0.5, -14),BackgroundColor3=SURFACE2,Text="x",TextColor3=TEXT,Font=Enum.Font.GothamBold,TextSize=14,AutoButtonColor=false,BorderSizePixel=0}, header);
+corner(btnClose, 7);
+local btnHome = create("TextButton", {Size=UDim2.fromOffset(46, 28),Position=UDim2.new(1, -124, 0.5, -14),BackgroundColor3=ACCENT,Text="home",TextColor3=Color3.fromRGB(24, 14, 8),Font=Enum.Font.GothamBold,TextSize=12,AutoButtonColor=false,BorderSizePixel=0}, header);
+corner(btnHome, 7);
+local rail = create("Frame", {Size=UDim2.new(0, 128, 1, -42),Position=UDim2.fromOffset(0, 42),BackgroundColor3=SURFACE,BorderSizePixel=0}, main);
+create("UIListLayout", {Padding=UDim.new(0, 4),SortOrder=Enum.SortOrder.LayoutOrder}, rail);
+create("UIPadding", {PaddingTop=UDim.new(0, 10),PaddingLeft=UDim.new(0, 8),PaddingRight=UDim.new(0, 8)}, rail);
+local body = create("Frame", {Size=UDim2.new(1, -128, 1, -42),Position=UDim2.fromOffset(128, 42),BackgroundTransparency=1}, main);
 do
-	local dragging, dragStart, startPos = false, nil, nil
+	local dragging, dragStart, startPos = false, nil, nil;
 	track(header.InputBegan:Connect(function(i)
-		if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
-			dragging = true
-			dragStart = i.Position
-			startPos = main.Position
+		if ((i.UserInputType == Enum.UserInputType.MouseButton1) or (i.UserInputType == Enum.UserInputType.Touch)) then
+			dragging = true;
+			dragStart = i.Position;
+			startPos = main.Position;
 		end
-	end))
+	end));
 	track(UIS.InputChanged:Connect(function(i)
-		if dragging and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then
-			local d = i.Position - dragStart
-			main.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + d.X, startPos.Y.Scale, startPos.Y.Offset + d.Y)
+		if (dragging and ((i.UserInputType == Enum.UserInputType.MouseMovement) or (i.UserInputType == Enum.UserInputType.Touch))) then
+			local d = i.Position - dragStart;
+			main.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + d.X, startPos.Y.Scale, startPos.Y.Offset + d.Y);
 		end
-	end))
+	end));
 	track(UIS.InputEnded:Connect(function(i)
-		if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
-			dragging = false
+		if ((i.UserInputType == Enum.UserInputType.MouseButton1) or (i.UserInputType == Enum.UserInputType.Touch)) then
+			dragging = false;
 		end
-	end))
+	end));
 end
-
 local function hover(btn, base)
-	track(btn.MouseEnter:Connect(function() tween(btn, { BackgroundColor3 = base:Lerp(Color3.new(1, 1, 1), 0.1) }) end))
-	track(btn.MouseLeave:Connect(function() tween(btn, { BackgroundColor3 = base }) end))
+	track(btn.MouseEnter:Connect(function()
+		tween(btn, {BackgroundColor3=base:Lerp(Color3.new(1, 1, 1), 0.1)});
+	end));
+	track(btn.MouseLeave:Connect(function()
+		tween(btn, {BackgroundColor3=base});
+	end));
 end
-hover(btnMin, SURFACE2)
-hover(btnClose, SURFACE2)
-hover(btnHome, ACCENT)
-
+hover(btnMin, SURFACE2);
+hover(btnClose, SURFACE2);
+hover(btnHome, ACCENT);
 local function makeSection(parent, text)
-	return create("TextLabel", {
-		Size = UDim2.new(1, 0, 0, 18), BackgroundTransparency = 1, Text = text, TextColor3 = MUTED,
-		Font = Enum.Font.GothamBold, TextSize = 11, TextXAlignment = Enum.TextXAlignment.Left,
-	}, parent)
+	return create("TextLabel", {Size=UDim2.new(1, 0, 0, 18),BackgroundTransparency=1,Text=text,TextColor3=MUTED,Font=Enum.Font.GothamBold,TextSize=11,TextXAlignment=Enum.TextXAlignment.Left}, parent);
 end
-
 local function makeLabel(parent, text, height)
-	return create("TextLabel", {
-		Size = UDim2.new(1, 0, 0, height or 34), BackgroundColor3 = SURFACE2, BorderSizePixel = 0,
-		Text = text, TextColor3 = TEXT, Font = Enum.Font.Gotham, TextSize = 12, TextWrapped = true,
-		TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top,
-	}, parent)
+	return create("TextLabel", {Size=UDim2.new(1, 0, 0, height or 34),BackgroundColor3=SURFACE2,BorderSizePixel=0,Text=text,TextColor3=TEXT,Font=Enum.Font.Gotham,TextSize=12,TextWrapped=true,TextXAlignment=Enum.TextXAlignment.Left,TextYAlignment=Enum.TextYAlignment.Top}, parent);
 end
-
 local function padLabel(lbl)
-	corner(lbl, 8)
-	create("UIPadding", { PaddingLeft = UDim.new(0, 12), PaddingRight = UDim.new(0, 12), PaddingTop = UDim.new(0, 8), PaddingBottom = UDim.new(0, 8) }, lbl)
-	return lbl
+	corner(lbl, 8);
+	create("UIPadding", {PaddingLeft=UDim.new(0, 12),PaddingRight=UDim.new(0, 12),PaddingTop=UDim.new(0, 8),PaddingBottom=UDim.new(0, 8)}, lbl);
+	return lbl;
 end
-
 local function makeButton(parent, text, cb, accent)
-	local base = accent and ACCENT or SURFACE2
-	local b = create("TextButton", {
-		Size = UDim2.new(1, 0, 0, 34), BackgroundColor3 = base, Text = text,
-		TextColor3 = accent and Color3.fromRGB(24, 14, 8) or TEXT, Font = Enum.Font.GothamSemibold,
-		TextSize = 13, AutoButtonColor = false, BorderSizePixel = 0,
-	}, parent)
-	corner(b, 8)
-	hover(b, base)
-	track(b.MouseButton1Click:Connect(function() safe(cb) end))
-	return b
+	local base = (accent and ACCENT) or SURFACE2;
+	local b = create("TextButton", {Size=UDim2.new(1, 0, 0, 34),BackgroundColor3=base,Text=text,TextColor3=((accent and Color3.fromRGB(24, 14, 8)) or TEXT),Font=Enum.Font.GothamSemibold,TextSize=13,AutoButtonColor=false,BorderSizePixel=0}, parent);
+	corner(b, 8);
+	hover(b, base);
+	track(b.MouseButton1Click:Connect(function()
+		safe(cb);
+	end));
+	return b;
 end
-
 local function makeToggle(parent, text, default, cb)
-	local holder = create("TextButton", {
-		Size = UDim2.new(1, 0, 0, 34), BackgroundColor3 = SURFACE2, Text = "", AutoButtonColor = false, BorderSizePixel = 0,
-	}, parent)
-	corner(holder, 8)
-	create("TextLabel", {
-		Size = UDim2.new(1, -66, 1, 0), Position = UDim2.fromOffset(12, 0), BackgroundTransparency = 1, Text = text,
-		TextColor3 = TEXT, Font = Enum.Font.GothamMedium, TextSize = 13, TextXAlignment = Enum.TextXAlignment.Left,
-	}, holder)
-	local pill = create("Frame", {
-		Size = UDim2.fromOffset(38, 20), Position = UDim2.new(1, -50, 0.5, -10),
-		BackgroundColor3 = default and ACCENT or BG, BorderSizePixel = 0,
-	}, holder)
-	corner(pill, 10)
-	local knob = create("Frame", {
-		Size = UDim2.fromOffset(14, 14), Position = default and UDim2.fromOffset(21, 3) or UDim2.fromOffset(3, 3),
-		BackgroundColor3 = TEXT, BorderSizePixel = 0,
-	}, pill)
-	corner(knob, 7)
-	local on = default
+	local holder = create("TextButton", {Size=UDim2.new(1, 0, 0, 34),BackgroundColor3=SURFACE2,Text="",AutoButtonColor=false,BorderSizePixel=0}, parent);
+	corner(holder, 8);
+	create("TextLabel", {Size=UDim2.new(1, -66, 1, 0),Position=UDim2.fromOffset(12, 0),BackgroundTransparency=1,Text=text,TextColor3=TEXT,Font=Enum.Font.GothamMedium,TextSize=13,TextXAlignment=Enum.TextXAlignment.Left}, holder);
+	local pill = create("Frame", {Size=UDim2.fromOffset(38, 20),Position=UDim2.new(1, -50, 0.5, -10),BackgroundColor3=((default and ACCENT) or BG),BorderSizePixel=0}, holder);
+	corner(pill, 10);
+	local knob = create("Frame", {Size=UDim2.fromOffset(14, 14),Position=((default and UDim2.fromOffset(21, 3)) or UDim2.fromOffset(3, 3)),BackgroundColor3=TEXT,BorderSizePixel=0}, pill);
+	corner(knob, 7);
+	local on = default;
 	track(holder.MouseButton1Click:Connect(function()
-		on = not on
-		tween(pill, { BackgroundColor3 = on and ACCENT or BG })
-		tween(knob, { Position = on and UDim2.fromOffset(21, 3) or UDim2.fromOffset(3, 3) })
-		safe(function() cb(on) end)
-	end))
+		on = not on;
+		tween(pill, {BackgroundColor3=((on and ACCENT) or BG)});
+		tween(knob, {Position=((on and UDim2.fromOffset(21, 3)) or UDim2.fromOffset(3, 3))});
+		safe(function()
+			cb(on);
+		end);
+	end));
 end
-
 local function makeSlider(parent, text, min, max, default, step, cb)
-	local holder = create("Frame", { Size = UDim2.new(1, 0, 0, 52), BackgroundColor3 = SURFACE2, BorderSizePixel = 0 }, parent)
-	corner(holder, 8)
-	create("TextLabel", {
-		Size = UDim2.new(1, -80, 0, 22), Position = UDim2.fromOffset(12, 4), BackgroundTransparency = 1, Text = text,
-		TextColor3 = TEXT, Font = Enum.Font.GothamMedium, TextSize = 13, TextXAlignment = Enum.TextXAlignment.Left,
-	}, holder)
-	local valueLbl = create("TextLabel", {
-		Size = UDim2.fromOffset(60, 22), Position = UDim2.new(1, -72, 0, 4), BackgroundTransparency = 1,
-		Text = tostring(default), TextColor3 = ACCENT, Font = Enum.Font.GothamBold, TextSize = 13,
-		TextXAlignment = Enum.TextXAlignment.Right,
-	}, holder)
-	local bar = create("Frame", {
-		Size = UDim2.new(1, -24, 0, 6), Position = UDim2.new(0, 12, 0, 36), BackgroundColor3 = BG, BorderSizePixel = 0,
-	}, holder)
-	corner(bar, 3)
-	local fill = create("Frame", {
-		Size = UDim2.new((default - min) / (max - min), 0, 1, 0), BackgroundColor3 = ACCENT, BorderSizePixel = 0,
-	}, bar)
-	corner(fill, 3)
-	local hit = create("TextButton", {
-		Size = UDim2.new(1, 0, 0, 26), Position = UDim2.fromOffset(0, 26), BackgroundTransparency = 1, Text = "",
-	}, holder)
-	local dragging = false
+	local holder = create("Frame", {Size=UDim2.new(1, 0, 0, 52),BackgroundColor3=SURFACE2,BorderSizePixel=0}, parent);
+	corner(holder, 8);
+	create("TextLabel", {Size=UDim2.new(1, -80, 0, 22),Position=UDim2.fromOffset(12, 4),BackgroundTransparency=1,Text=text,TextColor3=TEXT,Font=Enum.Font.GothamMedium,TextSize=13,TextXAlignment=Enum.TextXAlignment.Left}, holder);
+	local valueLbl = create("TextLabel", {Size=UDim2.fromOffset(60, 22),Position=UDim2.new(1, -72, 0, 4),BackgroundTransparency=1,Text=tostring(default),TextColor3=ACCENT,Font=Enum.Font.GothamBold,TextSize=13,TextXAlignment=Enum.TextXAlignment.Right}, holder);
+	local bar = create("Frame", {Size=UDim2.new(1, -24, 0, 6),Position=UDim2.new(0, 12, 0, 36),BackgroundColor3=BG,BorderSizePixel=0}, holder);
+	corner(bar, 3);
+	local fill = create("Frame", {Size=UDim2.new((default - min) / (max - min), 0, 1, 0),BackgroundColor3=ACCENT,BorderSizePixel=0}, bar);
+	corner(fill, 3);
+	local hit = create("TextButton", {Size=UDim2.new(1, 0, 0, 26),Position=UDim2.fromOffset(0, 26),BackgroundTransparency=1,Text=""}, holder);
+	local dragging = false;
 	local function setFromX(x)
-		local a = math.clamp((x - bar.AbsolutePosition.X) / math.max(bar.AbsoluteSize.X, 1), 0, 1)
-		local v = min + a * (max - min)
-		v = math.clamp(math.floor(v / step + 0.5) * step, min, max)
-		fill.Size = UDim2.new((v - min) / (max - min), 0, 1, 0)
-		valueLbl.Text = tostring(math.floor(v * 100 + 0.5) / 100)
-		cb(v)
+		local a = math.clamp((x - bar.AbsolutePosition.X) / math.max(bar.AbsoluteSize.X, 1), 0, 1);
+		local v = min + (a * (max - min));
+		v = math.clamp(math.floor((v / step) + 0.5) * step, min, max);
+		fill.Size = UDim2.new((v - min) / (max - min), 0, 1, 0);
+		valueLbl.Text = tostring(math.floor((v * 100) + 0.5) / 100);
+		cb(v);
 	end
 	track(hit.InputBegan:Connect(function(i)
-		if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
-			dragging = true
-			setFromX(i.Position.X)
+		if ((i.UserInputType == Enum.UserInputType.MouseButton1) or (i.UserInputType == Enum.UserInputType.Touch)) then
+			dragging = true;
+			setFromX(i.Position.X);
 		end
-	end))
+	end));
 	track(UIS.InputChanged:Connect(function(i)
-		if dragging and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then
-			setFromX(i.Position.X)
+		if (dragging and ((i.UserInputType == Enum.UserInputType.MouseMovement) or (i.UserInputType == Enum.UserInputType.Touch))) then
+			setFromX(i.Position.X);
 		end
-	end))
+	end));
 	track(UIS.InputEnded:Connect(function(i)
-		if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
-			dragging = false
+		if ((i.UserInputType == Enum.UserInputType.MouseButton1) or (i.UserInputType == Enum.UserInputType.Touch)) then
+			dragging = false;
 		end
-	end))
+	end));
 	return function(v)
-		v = math.clamp(v, min, max)
-		fill.Size = UDim2.new((v - min) / (max - min), 0, 1, 0)
-		valueLbl.Text = tostring(math.floor(v * 100 + 0.5) / 100)
-		cb(v)
-	end
+		v = math.clamp(v, min, max);
+		fill.Size = UDim2.new((v - min) / (max - min), 0, 1, 0);
+		valueLbl.Text = tostring(math.floor((v * 100) + 0.5) / 100);
+		cb(v);
+	end;
 end
-
 local function makeInput(parent, placeholder, default, cb, live)
-	local box = create("TextBox", {
-		Size = UDim2.new(1, 0, 0, 34), BackgroundColor3 = SURFACE2, Text = default or "", PlaceholderText = placeholder,
-		PlaceholderColor3 = MUTED, TextColor3 = TEXT, Font = Enum.Font.GothamMedium, TextSize = 13, ClearTextOnFocus = false,
-		TextXAlignment = Enum.TextXAlignment.Left, BorderSizePixel = 0,
-	}, parent)
-	corner(box, 8)
-	create("UIPadding", { PaddingLeft = UDim.new(0, 12), PaddingRight = UDim.new(0, 12) }, box)
+	local box = create("TextBox", {Size=UDim2.new(1, 0, 0, 34),BackgroundColor3=SURFACE2,Text=(default or ""),PlaceholderText=placeholder,PlaceholderColor3=MUTED,TextColor3=TEXT,Font=Enum.Font.GothamMedium,TextSize=13,ClearTextOnFocus=false,TextXAlignment=Enum.TextXAlignment.Left,BorderSizePixel=0}, parent);
+	corner(box, 8);
+	create("UIPadding", {PaddingLeft=UDim.new(0, 12),PaddingRight=UDim.new(0, 12)}, box);
 	if live then
-		track(box:GetPropertyChangedSignal("Text"):Connect(function() cb(box.Text) end))
+		track(box:GetPropertyChangedSignal("Text"):Connect(function()
+			cb(box.Text);
+		end));
 	else
-		track(box.FocusLost:Connect(function() cb(box.Text) end))
+		track(box.FocusLost:Connect(function()
+			cb(box.Text);
+		end));
 	end
-	return box
+	return box;
 end
-
-local pages, tabButtons, currentTab = {}, {}, nil
-local renderItems, refreshPlayers
-
+local pages, tabButtons, currentTab = {}, {}, nil;
+local renderItems, refreshPlayers;
 local function newPage(name)
-	local sf = create("ScrollingFrame", {
-		Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 3,
-		ScrollBarImageColor3 = ACCENT, AutomaticCanvasSize = Enum.AutomaticSize.Y, CanvasSize = UDim2.new(), Visible = false,
-	}, body)
-	create("UIListLayout", { Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder }, sf)
-	create("UIPadding", {
-		PaddingTop = UDim.new(0, 12), PaddingLeft = UDim.new(0, 12), PaddingRight = UDim.new(0, 14), PaddingBottom = UDim.new(0, 12),
-	}, sf)
-	pages[name] = sf
-	return sf
+	local sf = create("ScrollingFrame", {Size=UDim2.fromScale(1, 1),BackgroundTransparency=1,BorderSizePixel=0,ScrollBarThickness=3,ScrollBarImageColor3=ACCENT,AutomaticCanvasSize=Enum.AutomaticSize.Y,CanvasSize=UDim2.new(),Visible=false}, body);
+	create("UIListLayout", {Padding=UDim.new(0, 8),SortOrder=Enum.SortOrder.LayoutOrder}, sf);
+	create("UIPadding", {PaddingTop=UDim.new(0, 12),PaddingLeft=UDim.new(0, 12),PaddingRight=UDim.new(0, 14),PaddingBottom=UDim.new(0, 12)}, sf);
+	pages[name] = sf;
+	return sf;
 end
-
 local function switchTab(name)
-	currentTab = name
-	for n, pg in pairs(pages) do pg.Visible = (n == name) end
+	currentTab = name;
+	for n, pg in pairs(pages) do
+		pg.Visible = n == name;
+	end
 	for n, t in pairs(tabButtons) do
-		local active = (n == name)
-		tween(t.btn, { TextColor3 = active and ACCENT or MUTED, BackgroundTransparency = active and 0 or 1 }, 0.15)
-		t.bar.Visible = active
+		local active = n == name;
+		tween(t.btn, {TextColor3=((active and ACCENT) or MUTED),BackgroundTransparency=((active and 0) or 1)}, 0.15);
+		t.bar.Visible = active;
 	end
-	if name == "Items" and renderItems then renderItems() end
-	if name == "Players" and refreshPlayers then refreshPlayers() end
+	if ((name == "Items") and renderItems) then
+		renderItems();
+	end
+	if ((name == "Players") and refreshPlayers) then
+		refreshPlayers();
+	end
 end
-
 local function newTab(name, order)
-	local btn = create("TextButton", {
-		Size = UDim2.new(1, 0, 0, 34), BackgroundColor3 = SURFACE2, BackgroundTransparency = 1, Text = "   " .. string.lower(name),
-		TextColor3 = MUTED, Font = Enum.Font.GothamSemibold, TextSize = 13, TextXAlignment = Enum.TextXAlignment.Left,
-		AutoButtonColor = false, BorderSizePixel = 0, LayoutOrder = order,
-	}, rail)
-	corner(btn, 8)
-	local bar = create("Frame", {
-		Size = UDim2.fromOffset(3, 18), Position = UDim2.new(0, 0, 0.5, -9), BackgroundColor3 = ACCENT, BorderSizePixel = 0, Visible = false,
-	}, btn)
-	corner(bar, 2)
-	tabButtons[name] = { btn = btn, bar = bar }
-	track(btn.MouseButton1Click:Connect(function() switchTab(name) end))
+	local btn = create("TextButton", {Size=UDim2.new(1, 0, 0, 34),BackgroundColor3=SURFACE2,BackgroundTransparency=1,Text=("   " .. string.lower(name)),TextColor3=MUTED,Font=Enum.Font.GothamSemibold,TextSize=13,TextXAlignment=Enum.TextXAlignment.Left,AutoButtonColor=false,BorderSizePixel=0,LayoutOrder=order}, rail);
+	corner(btn, 8);
+	local bar = create("Frame", {Size=UDim2.fromOffset(3, 18),Position=UDim2.new(0, 0, 0.5, -9),BackgroundColor3=ACCENT,BorderSizePixel=0,Visible=false}, btn);
+	corner(bar, 2);
+	tabButtons[name] = {btn=btn,bar=bar};
+	track(btn.MouseButton1Click:Connect(function()
+		switchTab(name);
+	end));
 end
-
-newTab("Items", 1)
-newTab("House", 2)
-newTab("ESP", 3)
-newTab("Players", 4)
-newTab("Waypoints", 5)
-newTab("Misc", 6)
-newTab("System", 7)
-
--- items ---------------------------------------------------------------------
-
-local items, enemies, scanned, dirty, scanToken = {}, {}, false, true, 0
-
+newTab("Items", 1);
+newTab("House", 2);
+newTab("ESP", 3);
+newTab("Players", 4);
+newTab("Waypoints", 5);
+newTab("Misc", 6);
+newTab("System", 7);
+local items, enemies, scanned, dirty, scanToken = {}, {}, false, true, 0;
 local function posOf(inst)
-	local cur = inst
-	if inst:IsA("ProximityPrompt") or inst:IsA("ClickDetector") then cur = inst.Parent end
-	if not cur then return nil end
-	if cur:IsA("BasePart") then return cur.Position end
-	if cur:IsA("Attachment") then return cur.WorldPosition end
+	local cur = inst;
+	if (inst:IsA("ProximityPrompt") or inst:IsA("ClickDetector")) then
+		cur = inst.Parent;
+	end
+	if not cur then
+		return nil;
+	end
+	if cur:IsA("BasePart") then
+		return cur.Position;
+	end
+	if cur:IsA("Attachment") then
+		return cur.WorldPosition;
+	end
 	if cur:IsA("Model") then
-		local ok, cf = pcall(function() return cur:GetPivot() end)
-		if ok then return cf.Position end
+		local ok, cf = pcall(function()
+			return cur:GetPivot();
+		end);
+		if ok then
+			return cf.Position;
+		end
 	end
-	local p = cur:FindFirstChildWhichIsA("BasePart", true)
-	return p and p.Position
+	local p = cur:FindFirstChildWhichIsA("BasePart", true);
+	return p and p.Position;
 end
-
 local function inCharacter(inst)
-	local m = inst:FindFirstAncestorOfClass("Model")
+	local m = inst:FindFirstAncestorOfClass("Model");
 	while m do
-		if Players:GetPlayerFromCharacter(m) then return true end
-		m = m:FindFirstAncestorOfClass("Model")
+		if Players:GetPlayerFromCharacter(m) then
+			return true;
+		end
+		m = m:FindFirstAncestorOfClass("Model");
 	end
-	return false
+	return false;
 end
-
 local function labelFor(inst)
 	if inst:IsA("ProximityPrompt") then
-		local model = inst:FindFirstAncestorOfClass("Model")
-		local base = (inst.ObjectText ~= "" and inst.ObjectText) or (model and model.Name) or (inst.Parent and inst.Parent.Name) or "prompt"
-		if inst.ActionText ~= "" then return base .. " - " .. inst.ActionText end
-		return base
+		local model = inst:FindFirstAncestorOfClass("Model");
+		local base = ((inst.ObjectText ~= "") and inst.ObjectText) or (model and model.Name) or (inst.Parent and inst.Parent.Name) or "prompt";
+		if (inst.ActionText ~= "") then
+			return base .. " - " .. inst.ActionText;
+		end
+		return base;
 	elseif inst:IsA("ClickDetector") then
-		return (inst.Parent and inst.Parent.Name or "click") .. " - click"
+		return ((inst.Parent and inst.Parent.Name) or "click") .. " - click";
 	end
-	return inst.Name
+	return inst.Name;
 end
-
 local function ignoredBy(inst, label)
-	if not cfg.hideJunk or cfg.ignore == "" then return false end
-	local hay = string.lower(label)
-	local par = inst.Parent
-	local depth = 0
-	while par and par ~= Workspace and depth < 3 do
-		hay = hay .. " " .. string.lower(par.Name)
-		par = par.Parent
+	if (not cfg.hideJunk or (cfg.ignore == "")) then
+		return false;
+	end
+	local hay = string.lower(label);
+	local par = inst.Parent;
+	local depth = 0;
+	while par and (par ~= Workspace) and (depth < 3) do
+		hay = hay .. " " .. string.lower(par.Name);
+		par = par.Parent;
 		depth += 1
 	end
 	for word in string.gmatch(string.lower(cfg.ignore), "[^,%s]+") do
-		if string.find(hay, word, 1, true) then return true end
+		if string.find(hay, word, 1, true) then
+			return true;
+		end
 	end
-	return false
+	return false;
 end
-
 local function partOf(inst)
-	local cur = inst
-	if inst:IsA("ProximityPrompt") or inst:IsA("ClickDetector") then cur = inst.Parent end
-	if not cur then return nil end
-	if cur:IsA("BasePart") or cur:IsA("Attachment") then return cur end
+	local cur = inst;
+	if (inst:IsA("ProximityPrompt") or inst:IsA("ClickDetector")) then
+		cur = inst.Parent;
+	end
+	if not cur then
+		return nil;
+	end
+	if (cur:IsA("BasePart") or cur:IsA("Attachment")) then
+		return cur;
+	end
 	if cur:IsA("Tool") then
-		return cur:FindFirstChild("Handle") or cur:FindFirstChildWhichIsA("BasePart", true)
+		return cur:FindFirstChild("Handle") or cur:FindFirstChildWhichIsA("BasePart", true);
 	end
-	if cur:IsA("Model") then return cur.PrimaryPart or cur:FindFirstChildWhichIsA("BasePart", true) end
-	return cur:FindFirstChildWhichIsA("BasePart", true)
+	if cur:IsA("Model") then
+		return cur.PrimaryPart or cur:FindFirstChildWhichIsA("BasePart", true);
+	end
+	return cur:FindFirstChildWhichIsA("BasePart", true);
 end
-
 local function consider(inst)
-	if not alive or items[inst] or not inst.Parent then return end
+	if (not alive or items[inst] or not inst.Parent) then
+		return;
+	end
 	if inst:IsA("Humanoid") then
-		local m = inst.Parent
-		if m and m:IsA("Model") and not Players:GetPlayerFromCharacter(m) then enemies[m] = true end
-		return
+		local m = inst.Parent;
+		if (m and m:IsA("Model") and not Players:GetPlayerFromCharacter(m)) then
+			enemies[m] = true;
+		end
+		return;
 	end
-	local pat = string.lower(cfg.enemyPattern)
-	if pat ~= "" and inst:IsA("Model") and string.find(string.lower(inst.Name), pat, 1, true)
-		and not Players:GetPlayerFromCharacter(inst) then
-		enemies[inst] = true
-		return
+	local pat = string.lower(cfg.enemyPattern);
+	if ((pat ~= "") and inst:IsA("Model") and string.find(string.lower(inst.Name), pat, 1, true) and not Players:GetPlayerFromCharacter(inst)) then
+		enemies[inst] = true;
+		return;
 	end
-	local kind
-	if inst:IsA("ProximityPrompt") then kind = "prompt"
-	elseif inst:IsA("ClickDetector") then kind = "click"
-	elseif inst:IsA("Tool") then kind = "tool"
-	else return end
-	if inCharacter(inst) then return end
-	local label = labelFor(inst)
-	items[inst] = { kind = kind, label = label }
-	dirty = true
-	if scanned and cfg.filter ~= "" and string.find(string.lower(label), string.lower(cfg.filter), 1, true)
-		and (kind == "tool" or not ignoredBy(inst, label)) then
-		notify("found: " .. label)
+	local kind;
+	if inst:IsA("ProximityPrompt") then
+		kind = "prompt";
+	elseif inst:IsA("ClickDetector") then
+		kind = "click";
+	elseif inst:IsA("Tool") then
+		kind = "tool";
+	else
+		return;
+	end
+	if inCharacter(inst) then
+		return;
+	end
+	local label = labelFor(inst);
+	items[inst] = {kind=kind,label=label};
+	dirty = true;
+	if (scanned and (cfg.filter ~= "") and string.find(string.lower(label), string.lower(cfg.filter), 1, true) and ((kind == "tool") or not ignoredBy(inst, label))) then
+		notify("found: " .. label);
 	end
 end
-
 local function fullScan()
 	scanToken += 1
-	local token = scanToken
-	scanned = false
-	items = {}
-	enemies = {}
-	local all = Workspace:GetDescendants()
+	local token = scanToken;
+	scanned = false;
+	items = {};
+	enemies = {};
+	local all = Workspace:GetDescendants();
 	for i, inst in ipairs(all) do
-		if not alive or token ~= scanToken then return end
-		consider(inst)
-		if i % 500 == 0 then task.wait() end
-	end
-	scanned = true
-	dirty = true
-	if currentTab == "Items" then renderItems() end
-end
-
-local function grab(inst, entry)
-	if state.grabbing then return end
-	local root = getRoot()
-	if not root then notify("no character") return end
-	if not inst.Parent then notify("item is gone") return end
-	local pos = posOf(inst)
-	if not pos then notify("no position for item") return end
-	state.grabbing = true
-	local origin = root.CFrame
-	tp(CFrame.new(pos + Vector3.new(0, 3, 0)))
-	task.wait(0.25)
-	if entry.kind == "prompt" then
-		local hold = inst.HoldDuration
-		pcall(function() inst.HoldDuration = 0 end)
-		for _ = 1, 3 do
-			if fireproximityprompt then pcall(fireproximityprompt, inst) end
-			task.wait(0.12)
+		if (not alive or (token ~= scanToken)) then
+			return;
 		end
-		pcall(function() inst.HoldDuration = hold end)
-	elseif entry.kind == "click" then
+		consider(inst);
+		if ((i % 500) == 0) then
+			task.wait();
+		end
+	end
+	scanned = true;
+	dirty = true;
+	if (currentTab == "Items") then
+		renderItems();
+	end
+end
+local function grab(inst, entry)
+	if state.grabbing then
+		return;
+	end
+	local root = getRoot();
+	if not root then
+		notify("no character");
+		return;
+	end
+	if not inst.Parent then
+		notify("item is gone");
+		return;
+	end
+	local pos = posOf(inst);
+	if not pos then
+		notify("no position for item");
+		return;
+	end
+	state.grabbing = true;
+	local origin = root.CFrame;
+	tp(CFrame.new(pos + Vector3.new(0, 3, 0)));
+	task.wait(0.25);
+	if (entry.kind == "prompt") then
+		local hold = inst.HoldDuration;
+		pcall(function()
+			inst.HoldDuration = 0;
+		end);
+		for _ = 1, 3 do
+			if fireproximityprompt then
+				pcall(fireproximityprompt, inst);
+			end
+			task.wait(0.12);
+		end
+		pcall(function()
+			inst.HoldDuration = hold;
+		end);
+	elseif (entry.kind == "click") then
 		for _ = 1, 2 do
-			if fireclickdetector then pcall(fireclickdetector, inst) end
-			task.wait(0.12)
+			if fireclickdetector then
+				pcall(fireclickdetector, inst);
+			end
+			task.wait(0.12);
 		end
 	else
-		local handle = inst:FindFirstChild("Handle") or inst:FindFirstChildWhichIsA("BasePart", true)
-		if handle and firetouchinterest then
-			pcall(firetouchinterest, root, handle, 0)
-			task.wait(0.1)
-			pcall(firetouchinterest, root, handle, 1)
+		local handle = inst:FindFirstChild("Handle") or inst:FindFirstChildWhichIsA("BasePart", true);
+		if (handle and firetouchinterest) then
+			pcall(firetouchinterest, root, handle, 0);
+			task.wait(0.1);
+			pcall(firetouchinterest, root, handle, 1);
 		end
-		task.wait(0.2)
+		task.wait(0.2);
 	end
-	task.wait(0.3)
-	if cfg.returnAfter then tp(origin) end
-	local taken = (not inst:IsDescendantOf(Workspace)) or inCharacter(inst)
-	notify((taken and "grabbed: " or "tried: ") .. entry.label)
-	dirty = true
-	state.grabbing = false
+	task.wait(0.3);
+	if cfg.returnAfter then
+		tp(origin);
+	end
+	local taken = not inst:IsDescendantOf(Workspace) or inCharacter(inst);
+	notify(((taken and "grabbed: ") or "tried: ") .. entry.label);
+	dirty = true;
+	state.grabbing = false;
 end
-
-local pItems = newPage("Items")
-makeSection(pItems, "ITEM FINDER")
+local pItems = newPage("Items");
+makeSection(pItems, "ITEM FINDER");
 makeInput(pItems, "filter by name (empty = everything)", "", function(t)
-	cfg.filter = t
-	if renderItems then renderItems() end
-end, true)
-makeToggle(pItems, "return to start after grabbing", true, function(v) cfg.returnAfter = v end)
-makeToggle(pItems, "hide doors and junk", true, function(v)
-	cfg.hideJunk = v
-	if renderItems then renderItems() end
-end)
-makeInput(pItems, "ignore words, comma separated", cfg.ignore, function(t)
-	cfg.ignore = t
-	if renderItems then renderItems() end
-end, true)
-makeButton(pItems, "rescan world", function() fullScan() end)
-local countLbl = padLabel(makeLabel(pItems, "scanning...", 32))
-local listFrame = create("Frame", { Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1 }, pItems)
-create("UIListLayout", { Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder }, listFrame)
-
-local function makeRow(parent, labelText, btnText, cb, order)
-	local row = create("Frame", { Size = UDim2.new(1, 0, 0, 36), BackgroundColor3 = SURFACE2, BorderSizePixel = 0, LayoutOrder = order or 0 }, parent)
-	corner(row, 8)
-	create("TextLabel", {
-		Size = UDim2.new(1, -104, 1, 0), Position = UDim2.fromOffset(12, 0), BackgroundTransparency = 1, Text = labelText,
-		TextColor3 = TEXT, Font = Enum.Font.GothamMedium, TextSize = 12, TextXAlignment = Enum.TextXAlignment.Left,
-		TextTruncate = Enum.TextTruncate.AtEnd,
-	}, row)
-	local b = create("TextButton", {
-		Size = UDim2.fromOffset(86, 26), Position = UDim2.new(1, -94, 0.5, -13), BackgroundColor3 = ACCENT, Text = btnText,
-		TextColor3 = Color3.fromRGB(24, 14, 8), Font = Enum.Font.GothamBold, TextSize = 12, AutoButtonColor = false, BorderSizePixel = 0,
-	}, row)
-	corner(b, 6)
-	hover(b, ACCENT)
-	track(b.MouseButton1Click:Connect(function() safe(cb) end))
-	return row
-end
-
-renderItems = function()
-	for _, c in ipairs(listFrame:GetChildren()) do
-		if c:IsA("Frame") then c:Destroy() end
+	cfg.filter = t;
+	if renderItems then
+		renderItems();
 	end
-	local root = getRoot()
-	local origin = root and root.Position or Vector3.zero
-	local f = string.lower(cfg.filter)
-	local arr = {}
-	for inst, e in pairs(items) do
-		if inst.Parent and (f == "" or string.find(string.lower(e.label), f, 1, true))
-			and (e.kind == "tool" or not ignoredBy(inst, e.label)) then
-			local p = posOf(inst)
-			if p then table.insert(arr, { inst = inst, e = e, d = (p - origin).Magnitude }) end
+end, true);
+makeToggle(pItems, "return to start after grabbing", true, function(v)
+	cfg.returnAfter = v;
+end);
+makeToggle(pItems, "hide doors and junk", true, function(v)
+	cfg.hideJunk = v;
+	if renderItems then
+		renderItems();
+	end
+end);
+makeInput(pItems, "ignore words, comma separated", cfg.ignore, function(t)
+	cfg.ignore = t;
+	if renderItems then
+		renderItems();
+	end
+end, true);
+makeButton(pItems, "rescan world", function()
+	fullScan();
+end);
+local countLbl = padLabel(makeLabel(pItems, "scanning...", 32));
+local listFrame = create("Frame", {Size=UDim2.new(1, 0, 0, 0),AutomaticSize=Enum.AutomaticSize.Y,BackgroundTransparency=1}, pItems);
+create("UIListLayout", {Padding=UDim.new(0, 6),SortOrder=Enum.SortOrder.LayoutOrder}, listFrame);
+local function makeRow(parent, labelText, btnText, cb, order)
+	local row = create("Frame", {Size=UDim2.new(1, 0, 0, 36),BackgroundColor3=SURFACE2,BorderSizePixel=0,LayoutOrder=(order or 0)}, parent);
+	corner(row, 8);
+	create("TextLabel", {Size=UDim2.new(1, -104, 1, 0),Position=UDim2.fromOffset(12, 0),BackgroundTransparency=1,Text=labelText,TextColor3=TEXT,Font=Enum.Font.GothamMedium,TextSize=12,TextXAlignment=Enum.TextXAlignment.Left,TextTruncate=Enum.TextTruncate.AtEnd}, row);
+	local b = create("TextButton", {Size=UDim2.fromOffset(86, 26),Position=UDim2.new(1, -94, 0.5, -13),BackgroundColor3=ACCENT,Text=btnText,TextColor3=Color3.fromRGB(24, 14, 8),Font=Enum.Font.GothamBold,TextSize=12,AutoButtonColor=false,BorderSizePixel=0}, row);
+	corner(b, 6);
+	hover(b, ACCENT);
+	track(b.MouseButton1Click:Connect(function()
+		safe(cb);
+	end));
+	return row;
+end
+function renderItems()
+	for _, c in ipairs(listFrame:GetChildren()) do
+		if c:IsA("Frame") then
+			c:Destroy();
 		end
 	end
-	table.sort(arr, function(a, b) return a.d < b.d end)
-	local shown = math.min(#arr, 80)
-	countLbl.Text = (scanned and "" or "scanning... ") .. #arr .. " match, showing " .. shown .. " nearest"
+	local root = getRoot();
+	local origin = (root and root.Position) or Vector3.zero;
+	local f = string.lower(cfg.filter);
+	local arr = {};
+	for inst, e in pairs(items) do
+		if (inst.Parent and ((f == "") or string.find(string.lower(e.label), f, 1, true)) and ((e.kind == "tool") or not ignoredBy(inst, e.label))) then
+			local p = posOf(inst);
+			if p then
+				table.insert(arr, {inst=inst,e=e,d=(p - origin).Magnitude});
+			end
+		end
+	end
+	table.sort(arr, function(a, b)
+		return a.d < b.d;
+	end);
+	local shown = math.min(#arr, 80);
+	countLbl.Text = ((scanned and "") or "scanning... ") .. #arr .. " match, showing " .. shown .. " nearest";
 	for i = 1, shown do
-		local a = arr[i]
-		makeRow(listFrame, string.format("%s  [%dm]", a.e.label, math.floor(a.d)), "tp + grab", function() grab(a.inst, a.e) end, i)
+		local a = arr[i];
+		makeRow(listFrame, string.format("%s  [%dm]", a.e.label, math.floor(a.d)), "tp + grab", function()
+			grab(a.inst, a.e);
+		end, i);
 	end
 end
-
 track(Workspace.DescendantAdded:Connect(function(inst)
-	if scanned then task.defer(consider, inst) end
-end))
-track(Workspace.DescendantRemoving:Connect(function(inst)
-	enemies[inst] = nil
-	if items[inst] then
-		items[inst] = nil
-		dirty = true
+	if scanned then
+		task.defer(consider, inst);
 	end
-end))
+end));
+track(Workspace.DescendantRemoving:Connect(function(inst)
+	enemies[inst] = nil;
+	if items[inst] then
+		items[inst] = nil;
+		dirty = true;
+	end
+end));
 task.spawn(function()
 	while alive do
-		task.wait(1.5)
-		if dirty and currentTab == "Items" then
-			dirty = false
-			renderItems()
+		task.wait(1.5);
+		if (dirty and (currentTab == "Items")) then
+			dirty = false;
+			renderItems();
 		end
 	end
-end)
-
--- house ---------------------------------------------------------------------
-
-local statusLbl
-local setRadius, setWidth, setHeight = function() end, function() end, function() end
-
+end);
+local statusLbl;
+local setRadius, setWidth, setHeight = function()
+end, function()
+end, function()
+end;
 local function setStatus(t)
-	if statusLbl then statusLbl.Text = t end
-end
-
-local function r2(x) return math.floor(x * 100 + 0.5) / 100 end
-
-local function hammerTool()
-	local c = player.Character
-	if not c then return nil end
-	local needle = string.lower(cfg.hammer)
-	for _, t in ipairs(c:GetChildren()) do
-		if t:IsA("Tool") and string.find(string.lower(t.Name), needle, 1, true) then return t end
+	if statusLbl then
+		statusLbl.Text = t;
 	end
-	return nil
 end
-
-local function equipHammer()
-	if hammerTool() then return true end
-	local bp = player:FindFirstChildOfClass("Backpack")
-	local hum = getHum()
-	if not bp or not hum then return false end
-	local needle = string.lower(cfg.hammer)
-	for _, t in ipairs(bp:GetChildren()) do
-		if t:IsA("Tool") and string.find(string.lower(t.Name), needle, 1, true) then
-			hum:EquipTool(t)
-			task.wait(0.3)
-			return true
+local function r2(x)
+	return math.floor((x * 100) + 0.5) / 100;
+end
+local function hammerTool()
+	local c = player.Character;
+	if not c then
+		return nil;
+	end
+	local needle = string.lower(cfg.hammer);
+	for _, t in ipairs(c:GetChildren()) do
+		if (t:IsA("Tool") and string.find(string.lower(t.Name), needle, 1, true)) then
+			return t;
 		end
 	end
-	return false
+	return nil;
 end
-
+local function equipHammer()
+	if hammerTool() then
+		return true;
+	end
+	local bp = player:FindFirstChildOfClass("Backpack");
+	local hum = getHum();
+	if (not bp or not hum) then
+		return false;
+	end
+	local needle = string.lower(cfg.hammer);
+	for _, t in ipairs(bp:GetChildren()) do
+		if (t:IsA("Tool") and string.find(string.lower(t.Name), needle, 1, true)) then
+			hum:EquipTool(t);
+			task.wait(0.3);
+			return true;
+		end
+	end
+	return false;
+end
 local function hasSpatial(packed)
 	for i = 1, packed.n do
-		local ty = typeof(packed[i])
-		if ty == "CFrame" or ty == "Vector3" then return true end
+		local ty = typeof(packed[i]);
+		if ((ty == "CFrame") or (ty == "Vector3")) then
+			return true;
+		end
 	end
-	return false
+	return false;
 end
-
 local function describe(rec)
-	local types = {}
-	for i = 1, rec.args.n do types[i] = typeof(rec.args[i]) end
-	return rec.remote.Name .. "(" .. table.concat(types, ", ") .. ")"
-end
-
-local function groundY(pos)
-	local rp = RaycastParams.new()
-	rp.FilterType = Enum.RaycastFilterType.Exclude
-	rp.FilterDescendantsInstances = { player.Character }
-	local hit = Workspace:Raycast(pos, Vector3.new(0, -40, 0), rp)
-	return hit and hit.Position.Y or (pos.Y - 3)
-end
-
-local function analyse(rec, c)
-	local cf, size = c.cf, c.size
-	local axes = { cf.RightVector, cf.UpVector, cf.LookVector }
-	local sizes = { size.X, size.Y, size.Z }
-	local vi, vbest = 2, -1
-	for i = 1, 3 do
-		local d = math.abs(axes[i].Y)
-		if d > vbest then
-			vbest = d
-			vi = i
-		end
-	end
-	local hi = {}
-	for i = 1, 3 do
-		if i ~= vi then table.insert(hi, i) end
-	end
-	local wi, ti = hi[1], hi[2]
-	if sizes[ti] > sizes[wi] then wi, ti = ti, wi end
-	local wAxis = Vector3.new(axes[wi].X, 0, axes[wi].Z)
-	if wAxis.Magnitude < 0.1 then return false end
-	rec.w0 = wAxis.Unit
-	rec.width, rec.height, rec.thick = sizes[wi], sizes[vi], sizes[ti]
-	return true
-end
-
-local function detectPiece(rec)
-	local refPos
+	local types = {};
 	for i = 1, rec.args.n do
-		local v = rec.args[i]
-		local ty = typeof(v)
-		if ty == "CFrame" then
-			rec.argIndex, rec.argType, refPos = i, "CFrame", v.Position
-			rec.baseRot = v - v.Position
-			break
-		elseif ty == "Vector3" then
-			rec.argIndex, rec.argType, refPos = i, "Vector3", v
-			break
+		types[i] = typeof(rec.args[i]);
+	end
+	return rec.remote.Name .. "(" .. table.concat(types, ", ") .. ")";
+end
+local function groundY(pos)
+	local rp = RaycastParams.new();
+	rp.FilterType = Enum.RaycastFilterType.Exclude;
+	rp.FilterDescendantsInstances = {player.Character};
+	local hit = Workspace:Raycast(pos, Vector3.new(0, -40, 0), rp);
+	return (hit and hit.Position.Y) or (pos.Y - 3);
+end
+local function analyse(rec, c)
+	local cf, size = c.cf, c.size;
+	local axes = {cf.RightVector,cf.UpVector,cf.LookVector};
+	local sizes = {size.X,size.Y,size.Z};
+	local vi, vbest = 2, -1;
+	for i = 1, 3 do
+		local d = math.abs(axes[i].Y);
+		if (d > vbest) then
+			vbest = d;
+			vi = i;
 		end
 	end
-	if not refPos then return end
-
-	local root = getRoot()
-	local gl = groundY(Vector3.new(refPos.X, root and root.Position.Y or (refPos.Y + 3), refPos.Z))
-	rec.yOff = refPos.Y - gl
-	if rec.yOff < -1 or rec.yOff > 12 then rec.yOff = cfg.height / 2 end
-
-	local seenInst = {}
+	local hi = {};
+	for i = 1, 3 do
+		if (i ~= vi) then
+			table.insert(hi, i);
+		end
+	end
+	local wi, ti = hi[1], hi[2];
+	if (sizes[ti] > sizes[wi]) then
+		wi, ti = ti, wi;
+	end
+	local wAxis = Vector3.new(axes[wi].X, 0, axes[wi].Z);
+	if (wAxis.Magnitude < 0.1) then
+		return false;
+	end
+	rec.w0 = wAxis.Unit;
+	rec.width, rec.height, rec.thick = sizes[wi], sizes[vi], sizes[ti];
+	return true;
+end
+local function detectPiece(rec)
+	local refPos;
+	for i = 1, rec.args.n do
+		local v = rec.args[i];
+		local ty = typeof(v);
+		if (ty == "CFrame") then
+			rec.argIndex, rec.argType, refPos = i, "CFrame", v.Position;
+			rec.baseRot = v - v.Position;
+			break;
+		elseif (ty == "Vector3") then
+			rec.argIndex, rec.argType, refPos = i, "Vector3", v;
+			break;
+		end
+	end
+	if not refPos then
+		return;
+	end
+	local root = getRoot();
+	local gl = groundY(Vector3.new(refPos.X, (root and root.Position.Y) or (refPos.Y + 3), refPos.Z));
+	rec.yOff = refPos.Y - gl;
+	if ((rec.yOff < -1) or (rec.yOff > 12)) then
+		rec.yOff = cfg.height / 2;
+	end
+	local seenInst = {};
 	local conn = Workspace.DescendantAdded:Connect(function(inst)
-		if inst:IsA("Model") or inst:IsA("BasePart") then table.insert(seenInst, inst) end
-	end)
+		if (inst:IsA("Model") or inst:IsA("BasePart")) then
+			table.insert(seenInst, inst);
+		end
+	end);
 	task.delay(1.6, function()
-		conn:Disconnect()
-		if not alive then return end
-		local cands = {}
+		conn:Disconnect();
+		if not alive then
+			return;
+		end
+		local cands = {};
 		for _, inst in ipairs(seenInst) do
 			if inst.Parent then
-				local cf, size
+				local cf, size;
 				if inst:IsA("Model") then
-					local ok1, sz = pcall(function() return inst:GetExtentsSize() end)
-					local ok2, pv = pcall(function() return inst:GetPivot() end)
-					if ok1 and ok2 then size, cf = sz, pv end
+					local ok1, sz = pcall(function()
+						return inst:GetExtentsSize();
+					end);
+					local ok2, pv = pcall(function()
+						return inst:GetPivot();
+					end);
+					if (ok1 and ok2) then
+						size, cf = sz, pv;
+					end
 				elseif not inst:FindFirstAncestorOfClass("Model") then
-					size, cf = inst.Size, inst.CFrame
+					size, cf = inst.Size, inst.CFrame;
 				end
-				if cf and size and size.Magnitude >= 0.5 and size.Magnitude <= 60
-					and not Players:GetPlayerFromCharacter(inst) and not inCharacter(inst) then
-					local d = (cf.Position - refPos).Magnitude
-					if d <= 20 then table.insert(cands, { cf = cf, size = size, d = d }) end
-				end
-			end
-		end
-		if #cands == 0 then
-			setStatus("learned: " .. describe(rec) .. ". piece not detected. set size by hand, try the rotate toggle.")
-			return
-		end
-		table.sort(cands, function(a, b) return a.d < b.d end)
-		local pick
-		for _, c in ipairs(cands) do
-			if c.d <= cands[1].d + 1 and (not pick or c.size.Magnitude > pick.size.Magnitude) then pick = c end
-		end
-		if pick and analyse(rec, pick) then
-			setWidth(math.clamp(r2(rec.width), 1, 24))
-			setHeight(math.clamp(r2(rec.height), 1, 24))
-			setStatus(string.format("learned: %s. piece %.1f wide, %.1f tall, %.1f thick.", describe(rec), rec.width, rec.height, rec.thick))
-		else
-			setStatus("learned: " .. describe(rec) .. ". piece axes unclear. set size by hand.")
-		end
-	end)
-end
-
-local function commit(rec)
-	if not state.learning then return end
-	state.learning = false
-	state.fallback = nil
-	state.template = rec
-	setStatus("learned: " .. describe(rec) .. ". reading the piece...")
-	notify("hammer learned")
-	detectPiece(rec)
-end
-
-local bridge = env.MilkGefBridge
-if not bridge then
-	bridge = {}
-	env.MilkGefBridge = bridge
-end
-
-if not bridge.hooked and hookmetamethod and getnamecallmethod then
-	bridge.hooked = true
-	local nc = newcclosure or function(f) return f end
-	local old
-	old = hookmetamethod(game, "__namecall", nc(function(self, ...)
-		local method = getnamecallmethod()
-		local cap = bridge.capture
-		if cap and (method == "FireServer" or method == "InvokeServer") and not checkcaller() then
-			pcall(cap, self, method, ...)
-			if setnamecallmethod then setnamecallmethod(method) end
-		end
-		return old(self, ...)
-	end))
-end
-
-bridge.capture = function(remote, method, ...)
-	if not alive or not state.learning then return end
-	if tick() - state.lastClick > 0.9 then return end
-	if typeof(remote) ~= "Instance" then return end
-	local cn = remote.ClassName
-	if cn ~= "RemoteEvent" and cn ~= "RemoteFunction" then return end
-	local rec = { remote = remote, method = method, args = table.pack(...) }
-	if hasSpatial(rec.args) then
-		task.defer(commit, rec)
-	elseif not state.fallback then
-		state.fallback = rec
-	end
-end
-
-track(UIS.InputBegan:Connect(function(i, gpe)
-	if gpe or not state.learning then return end
-	if i.UserInputType ~= Enum.UserInputType.MouseButton1 and i.UserInputType ~= Enum.UserInputType.Touch then return end
-	if not hammerTool() then return end
-	state.lastClick = tick()
-	state.fallback = nil
-	task.delay(0.9, function()
-		if state.learning and state.fallback then commit(state.fallback) end
-	end)
-end))
-
-local function pieceRot(tpl, tangent, dir)
-	if tpl.w0 and tpl.baseRot then
-		local a0 = math.atan2(tpl.w0.X, tpl.w0.Z)
-		local a1 = math.atan2(tangent.X, tangent.Z)
-		return CFrame.Angles(0, a1 - a0, 0) * tpl.baseRot
-	end
-	local rot = CFrame.lookAt(Vector3.zero, dir)
-	if cfg.rotate then rot = rot * CFrame.Angles(0, math.rad(90), 0) end
-	return rot
-end
-
-local function blueprint(center, ground, tpl)
-	local out = {}
-	local r, w, h = cfg.radius, cfg.width, cfg.height
-	local t = tpl.thick or 1
-	local layers = math.max(1, math.ceil(cfg.wallHeight / h))
-	local doorLayers = math.max(1, math.ceil(7 / h))
-	local y0 = ground + (tpl.yOff or (h / 2))
-	local dirs = { Vector3.new(0, 0, 1), Vector3.new(1, 0, 0), Vector3.new(0, 0, -1), Vector3.new(-1, 0, 0) }
-
-	local cam = Workspace.CurrentCamera
-	local look = cam and cam.CFrame.LookVector or Vector3.new(0, 0, 1)
-	local flat = Vector3.new(look.X, 0, look.Z)
-	local doorSide, best = 1, -math.huge
-	for i, d in ipairs(dirs) do
-		local dot = d:Dot(flat)
-		if dot > best then
-			best = dot
-			doorSide = i
-		end
-	end
-
-	for layer = 1, layers do
-		local y = y0 + (layer - 1) * h
-		for si, dir in ipairs(dirs) do
-			local span = (dir.Z ~= 0) and r or (r - t / 2)
-			local tangent = Vector3.new(-dir.Z, 0, dir.X)
-			local n = math.max(1, math.ceil((2 * span) / w))
-			local segW = (2 * span) / n
-			local doorSegs = math.min(n, math.max(1, math.ceil(4 / segW)))
-			local first = math.max(1, math.floor((n - doorSegs) / 2) + 1)
-			for k = 1, n do
-				local inDoor = cfg.door and si == doorSide and layer <= doorLayers and k >= first and k < first + doorSegs
-				if not inDoor then
-					local off = -span + (k - 0.5) * segW
-					local pos = Vector3.new(center.X, y, center.Z) + dir * r + tangent * off
-					table.insert(out, { pos = pos, tangent = tangent, dir = dir })
-				end
-			end
-		end
-	end
-	return out
-end
-
-local function firePiece(tpl, spec)
-	local remote = tpl.remote
-	if not remote or not remote.Parent then return false end
-	local args = table.pack(table.unpack(tpl.args, 1, tpl.args.n))
-	local idx = tpl.argIndex
-	if idx then
-		if tpl.argType == "CFrame" then
-			args[idx] = CFrame.new(spec.pos) * pieceRot(tpl, spec.tangent, spec.dir)
-		else
-			args[idx] = spec.pos
-		end
-	end
-	if tpl.method == "InvokeServer" then
-		task.spawn(function() pcall(remote.InvokeServer, remote, table.unpack(args, 1, args.n)) end)
-	else
-		pcall(remote.FireServer, remote, table.unpack(args, 1, args.n))
-	end
-	return true
-end
-
-local function buildHouse(radius)
-	if state.building then return end
-	local tpl = state.template
-	if not tpl then notify("learn the hammer first") return end
-	if not tpl.argIndex then notify("template has no position arg, relearn") return end
-	local root = getRoot()
-	if not root then notify("no character") return end
-	if radius then
-		cfg.radius = radius
-		setRadius(radius)
-	end
-	state.building = true
-	equipHammer()
-	root = getRoot()
-	if not root then
-		state.building = false
-		return
-	end
-	local center = root.Position
-	local pieces = blueprint(center, groundY(center), tpl)
-	for i, spec in ipairs(pieces) do
-		if not state.building or not alive then break end
-		if not firePiece(tpl, spec) then
-			notify("remote vanished, relearn")
-			break
-		end
-		setStatus("building " .. i .. "/" .. #pieces)
-		task.wait(cfg.delay)
-	end
-	state.building = false
-	setStatus("learned: " .. describe(tpl))
-	notify("box pass done")
-end
-
-local pHouse = newPage("House")
-makeSection(pHouse, "AUTO HOUSE")
-statusLbl = padLabel(makeLabel(pHouse, "template: none. press learn, hold the hammer, place one wall piece by hand.", 52))
-makeInput(pHouse, "hammer tool name", cfg.hammer, function(t)
-	if t ~= "" then cfg.hammer = t end
-end)
-makeButton(pHouse, "1. learn hammer (place one wall piece)", function()
-	if not hookmetamethod then notify("executor has no hookmetamethod") return end
-	state.learning = true
-	state.fallback = nil
-	setStatus("listening... equip the hammer and place one wall piece")
-	equipHammer()
-end, true)
-makeButton(pHouse, "2. small box with door", function() buildHouse(5) end, true)
-makeButton(pHouse, "2. big box with door", function() buildHouse(13) end, true)
-makeButton(pHouse, "build with the sliders below", function() buildHouse() end)
-makeButton(pHouse, "stop building", function() state.building = false end)
-makeButton(pHouse, "equip hammer", function()
-	if not equipHammer() then notify("no tool matching that name") end
-end)
-setRadius = makeSlider(pHouse, "box half-size", 3, 20, cfg.radius, 0.5, function(v) cfg.radius = v end)
-makeSlider(pHouse, "wall height (studs)", 4, 24, cfg.wallHeight, 1, function(v) cfg.wallHeight = v end)
-setWidth = makeSlider(pHouse, "piece width", 1, 24, cfg.width, 0.25, function(v) cfg.width = v end)
-setHeight = makeSlider(pHouse, "piece height", 1, 24, cfg.height, 0.25, function(v) cfg.height = v end)
-makeSlider(pHouse, "delay per piece", 0.05, 0.6, cfg.delay, 0.01, function(v) cfg.delay = v end)
-makeToggle(pHouse, "cut a door", true, function(v) cfg.door = v end)
-makeToggle(pHouse, "rotate walls 90 (only if size not detected)", false, function(v) cfg.rotate = v end)
-
--- players -------------------------------------------------------------------
-
-local lastCF
-local pPlayers = newPage("Players")
-makeSection(pPlayers, "TELEPORT TO PLAYER")
-makeButton(pPlayers, "back to where i was", function()
-	if lastCF then tp(lastCF) else notify("no saved position") end
-end)
-local plist = create("Frame", { Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1 }, pPlayers)
-create("UIListLayout", { Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder }, plist)
-
-refreshPlayers = function()
-	for _, c in ipairs(plist:GetChildren()) do
-		if c:IsA("Frame") then c:Destroy() end
-	end
-	local order = 0
-	for _, p in ipairs(Players:GetPlayers()) do
-		if p ~= player then
-			order += 1
-			makeRow(plist, p.DisplayName .. "  (@" .. p.Name .. ")", "teleport", function()
-				local tr = p.Character and p.Character:FindFirstChild("HumanoidRootPart")
-				local mr = getRoot()
-				if not tr or not mr then notify("player has no character") return end
-				lastCF = mr.CFrame
-				tp(tr.CFrame * CFrame.new(0, 0, 3))
-			end, order)
-		end
-	end
-	if order == 0 then
-		makeRow(plist, "nobody else in the server", "-", function() end, 1)
-	end
-end
-
-track(Players.PlayerAdded:Connect(function()
-	if currentTab == "Players" then refreshPlayers() end
-end))
-track(Players.PlayerRemoving:Connect(function()
-	task.defer(function()
-		if alive and currentTab == "Players" then refreshPlayers() end
-	end)
-end))
-
--- esp -----------------------------------------------------------------------
-
-local espFolder = create("Folder", { Name = "esp" }, gui)
-local espObjs = {}
-local COL_PLAYER = Color3.fromRGB(110, 200, 255)
-local COL_ENEMY = Color3.fromRGB(255, 80, 80)
-local COL_ITEM = Color3.fromRGB(170, 255, 120)
-
-local function espFor(key, adornee, color, hlTarget)
-	local o = espObjs[key]
-	if o then
-		if o.gui.Adornee ~= adornee then o.gui.Adornee = adornee end
-		o.seen = true
-		return o
-	end
-	o = { seen = true }
-	o.gui = create("BillboardGui", {
-		Adornee = adornee, AlwaysOnTop = true, Size = UDim2.fromOffset(160, 34),
-		StudsOffset = Vector3.new(0, 2.5, 0), LightInfluence = 0,
-	}, espFolder)
-	o.label = create("TextLabel", {
-		Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Text = "", TextColor3 = color,
-		TextStrokeTransparency = 0.35, Font = Enum.Font.GothamBold, TextSize = 13,
-	}, o.gui)
-	if hlTarget then
-		o.hl = create("Highlight", {
-			Adornee = hlTarget, FillColor = color, FillTransparency = 0.82, OutlineColor = color,
-			DepthMode = Enum.HighlightDepthMode.AlwaysOnTop,
-		}, espFolder)
-	end
-	espObjs[key] = o
-	return o
-end
-
-local function espUpdate()
-	local cam = Workspace.CurrentCamera
-	if not cam then return end
-	local camPos = cam.CFrame.Position
-	for _, o in pairs(espObjs) do o.seen = false end
-
-	local function show(key, part, name, color, hlTarget)
-		if not part or not part.Parent then return end
-		local pos = part:IsA("Attachment") and part.WorldPosition or part.Position
-		local d = (pos - camPos).Magnitude
-		if d > cfg.espDist then return end
-		local o = espFor(key, part, color, hlTarget)
-		o.label.Text = name .. "\n" .. math.floor(d) .. "m"
-	end
-
-	if cfg.espPlayers then
-		for _, p in ipairs(Players:GetPlayers()) do
-			local c = p.Character
-			if p ~= player and c then
-				show(c, c:FindFirstChild("HumanoidRootPart") or c.PrimaryPart, p.DisplayName, COL_PLAYER, c)
-			end
-		end
-	end
-
-	if cfg.espEnemies then
-		for m in pairs(enemies) do
-			if m.Parent then
-				local part = m:FindFirstChild("HumanoidRootPart") or m.PrimaryPart or m:FindFirstChildWhichIsA("BasePart", true)
-				show(m, part, m.Name, COL_ENEMY, m)
-			end
-		end
-	end
-
-	if cfg.espItems then
-		local f = string.lower(cfg.filter)
-		local list = {}
-		for inst, e in pairs(items) do
-			if inst.Parent and (f == "" or string.find(string.lower(e.label), f, 1, true))
-				and (e.kind == "tool" or not ignoredBy(inst, e.label)) then
-				local part = partOf(inst)
-				if part then
-					local pos = part:IsA("Attachment") and part.WorldPosition or part.Position
-					local d = (pos - camPos).Magnitude
-					if d <= cfg.espDist then
-						table.insert(list, { inst = inst, part = part, label = e.label, d = d })
+				if (cf and size and (size.Magnitude >= 0.5) and (size.Magnitude <= 60) and not Players:GetPlayerFromCharacter(inst) and not inCharacter(inst)) then
+					local d = (cf.Position - refPos).Magnitude;
+					if (d <= 20) then
+						table.insert(cands, {cf=cf,size=size,d=d});
 					end
 				end
 			end
 		end
-		table.sort(list, function(a, b) return a.d < b.d end)
-		for i = 1, math.min(#list, 40) do
-			local a = list[i]
-			show(a.inst, a.part, a.label, COL_ITEM, nil)
+		if (#cands == 0) then
+			setStatus("learned: " .. describe(rec) .. ". piece not detected. set size by hand, try the rotate toggle.");
+			return;
+		end
+		table.sort(cands, function(a, b)
+			return a.d < b.d;
+		end);
+		local pick;
+		for _, c in ipairs(cands) do
+			if ((c.d <= (cands[1].d + 1)) and (not pick or (c.size.Magnitude > pick.size.Magnitude))) then
+				pick = c;
+			end
+		end
+		if (pick and analyse(rec, pick)) then
+			setWidth(math.clamp(r2(rec.width), 1, 24));
+			setHeight(math.clamp(r2(rec.height), 1, 24));
+			setStatus(string.format("learned: %s. piece %.1f wide, %.1f tall, %.1f thick.", describe(rec), rec.width, rec.height, rec.thick));
+		else
+			setStatus("learned: " .. describe(rec) .. ". piece axes unclear. set size by hand.");
+		end
+	end);
+end
+local function commit(rec)
+	if not state.learning then
+		return;
+	end
+	state.learning = false;
+	state.fallback = nil;
+	state.template = rec;
+	setStatus("learned: " .. describe(rec) .. ". reading the piece...");
+	notify("hammer learned");
+	detectPiece(rec);
+end
+local bridge = env.MilkGefBridge;
+if not bridge then
+	bridge = {};
+	env.MilkGefBridge = bridge;
+end
+if (not bridge.hooked and hookmetamethod and getnamecallmethod) then
+	bridge.hooked = true;
+	local nc = newcclosure or function(f)
+		return f;
+	end;
+	local old;
+	old = hookmetamethod(game, "__namecall", nc(function(self, ...)
+		local method = getnamecallmethod();
+		local cap = bridge.capture;
+		if (cap and ((method == "FireServer") or (method == "InvokeServer")) and not checkcaller()) then
+			pcall(cap, self, method, ...);
+			if setnamecallmethod then
+				setnamecallmethod(method);
+			end
+		end
+		return old(self, ...);
+	end));
+end
+bridge.capture = function(remote, method, ...)
+	if (not alive or not state.learning) then
+		return;
+	end
+	if ((tick() - state.lastClick) > 0.9) then
+		return;
+	end
+	if (typeof(remote) ~= "Instance") then
+		return;
+	end
+	local cn = remote.ClassName;
+	if ((cn ~= "RemoteEvent") and (cn ~= "RemoteFunction")) then
+		return;
+	end
+	local rec = {remote=remote,method=method,args=table.pack(...)};
+	if hasSpatial(rec.args) then
+		task.defer(commit, rec);
+	elseif not state.fallback then
+		state.fallback = rec;
+	end
+end;
+track(UIS.InputBegan:Connect(function(i, gpe)
+	if (gpe or not state.learning) then
+		return;
+	end
+	if ((i.UserInputType ~= Enum.UserInputType.MouseButton1) and (i.UserInputType ~= Enum.UserInputType.Touch)) then
+		return;
+	end
+	if not hammerTool() then
+		return;
+	end
+	state.lastClick = tick();
+	state.fallback = nil;
+	task.delay(0.9, function()
+		if (state.learning and state.fallback) then
+			commit(state.fallback);
+		end
+	end);
+end));
+local function pieceRot(tpl, tangent, dir)
+	if (tpl.w0 and tpl.baseRot) then
+		local a0 = math.atan2(tpl.w0.X, tpl.w0.Z);
+		local a1 = math.atan2(tangent.X, tangent.Z);
+		return CFrame.Angles(0, a1 - a0, 0) * tpl.baseRot;
+	end
+	local rot = CFrame.lookAt(Vector3.zero, dir);
+	if cfg.rotate then
+		rot = rot * CFrame.Angles(0, math.rad(90), 0);
+	end
+	return rot;
+end
+local function blueprint(center, ground, tpl)
+	local out = {};
+	local r, w, h = cfg.radius, cfg.width, cfg.height;
+	local t = tpl.thick or 1;
+	local layers = math.max(1, math.ceil(cfg.wallHeight / h));
+	local doorLayers = math.max(1, math.ceil(7 / h));
+	local y0 = ground + (tpl.yOff or (h / 2));
+	local dirs = {Vector3.new(0, 0, 1),Vector3.new(1, 0, 0),Vector3.new(0, 0, -1),Vector3.new(-1, 0, 0)};
+	local cam = Workspace.CurrentCamera;
+	local look = (cam and cam.CFrame.LookVector) or Vector3.new(0, 0, 1);
+	local flat = Vector3.new(look.X, 0, look.Z);
+	local doorSide, best = 1, -math.huge;
+	for i, d in ipairs(dirs) do
+		local dot = d:Dot(flat);
+		if (dot > best) then
+			best = dot;
+			doorSide = i;
 		end
 	end
-
+	for layer = 1, layers do
+		local y = y0 + ((layer - 1) * h);
+		for si, dir in ipairs(dirs) do
+			local span = ((dir.Z ~= 0) and r) or (r - (t / 2));
+			local tangent = Vector3.new(-dir.Z, 0, dir.X);
+			local n = math.max(1, math.ceil((2 * span) / w));
+			local segW = (2 * span) / n;
+			local doorSegs = math.min(n, math.max(1, math.ceil(4 / segW)));
+			local first = math.max(1, math.floor((n - doorSegs) / 2) + 1);
+			for k = 1, n do
+				local inDoor = cfg.door and (si == doorSide) and (layer <= doorLayers) and (k >= first) and (k < (first + doorSegs));
+				if not inDoor then
+					local off = -span + ((k - 0.5) * segW);
+					local pos = Vector3.new(center.X, y, center.Z) + (dir * r) + (tangent * off);
+					table.insert(out, {pos=pos,tangent=tangent,dir=dir});
+				end
+			end
+		end
+	end
+	return out;
+end
+local function firePiece(tpl, spec)
+	local remote = tpl.remote;
+	if (not remote or not remote.Parent) then
+		return false;
+	end
+	local args = table.pack(table.unpack(tpl.args, 1, tpl.args.n));
+	local idx = tpl.argIndex;
+	if idx then
+		if (tpl.argType == "CFrame") then
+			args[idx] = CFrame.new(spec.pos) * pieceRot(tpl, spec.tangent, spec.dir);
+		else
+			args[idx] = spec.pos;
+		end
+	end
+	if (tpl.method == "InvokeServer") then
+		task.spawn(function()
+			pcall(remote.InvokeServer, remote, table.unpack(args, 1, args.n));
+		end);
+	else
+		pcall(remote.FireServer, remote, table.unpack(args, 1, args.n));
+	end
+	return true;
+end
+local function buildHouse(radius)
+	if state.building then
+		return;
+	end
+	local tpl = state.template;
+	if not tpl then
+		notify("learn the hammer first");
+		return;
+	end
+	if not tpl.argIndex then
+		notify("template has no position arg, relearn");
+		return;
+	end
+	local root = getRoot();
+	if not root then
+		notify("no character");
+		return;
+	end
+	if radius then
+		cfg.radius = radius;
+		setRadius(radius);
+	end
+	state.building = true;
+	equipHammer();
+	root = getRoot();
+	if not root then
+		state.building = false;
+		return;
+	end
+	local center = root.Position;
+	local pieces = blueprint(center, groundY(center), tpl);
+	for i, spec in ipairs(pieces) do
+		if (not state.building or not alive) then
+			break;
+		end
+		if not firePiece(tpl, spec) then
+			notify("remote vanished, relearn");
+			break;
+		end
+		setStatus("building " .. i .. "/" .. #pieces);
+		task.wait(cfg.delay);
+	end
+	state.building = false;
+	setStatus("learned: " .. describe(tpl));
+	notify("box pass done");
+end
+local pHouse = newPage("House");
+makeSection(pHouse, "AUTO HOUSE");
+statusLbl = padLabel(makeLabel(pHouse, "template: none. press learn, hold the hammer, place one wall piece by hand.", 52));
+makeInput(pHouse, "hammer tool name", cfg.hammer, function(t)
+	if (t ~= "") then
+		cfg.hammer = t;
+	end
+end);
+makeButton(pHouse, "1. learn hammer (place one wall piece)", function()
+	if not hookmetamethod then
+		notify("executor has no hookmetamethod");
+		return;
+	end
+	state.learning = true;
+	state.fallback = nil;
+	setStatus("listening... equip the hammer and place one wall piece");
+	equipHammer();
+end, true);
+makeButton(pHouse, "2. small box with door", function()
+	buildHouse(5);
+end, true);
+makeButton(pHouse, "2. big box with door", function()
+	buildHouse(13);
+end, true);
+makeButton(pHouse, "build with the sliders below", function()
+	buildHouse();
+end);
+makeButton(pHouse, "stop building", function()
+	state.building = false;
+end);
+makeButton(pHouse, "equip hammer", function()
+	if not equipHammer() then
+		notify("no tool matching that name");
+	end
+end);
+setRadius = makeSlider(pHouse, "box half-size", 3, 20, cfg.radius, 0.5, function(v)
+	cfg.radius = v;
+end);
+makeSlider(pHouse, "wall height (studs)", 4, 24, cfg.wallHeight, 1, function(v)
+	cfg.wallHeight = v;
+end);
+setWidth = makeSlider(pHouse, "piece width", 1, 24, cfg.width, 0.25, function(v)
+	cfg.width = v;
+end);
+setHeight = makeSlider(pHouse, "piece height", 1, 24, cfg.height, 0.25, function(v)
+	cfg.height = v;
+end);
+makeSlider(pHouse, "delay per piece", 0.05, 0.6, cfg.delay, 0.01, function(v)
+	cfg.delay = v;
+end);
+makeToggle(pHouse, "cut a door", true, function(v)
+	cfg.door = v;
+end);
+makeToggle(pHouse, "rotate walls 90 (only if size not detected)", false, function(v)
+	cfg.rotate = v;
+end);
+local lastCF;
+local pPlayers = newPage("Players");
+makeSection(pPlayers, "TELEPORT TO PLAYER");
+makeButton(pPlayers, "back to where i was", function()
+	if lastCF then
+		tp(lastCF);
+	else
+		notify("no saved position");
+	end
+end);
+local plist = create("Frame", {Size=UDim2.new(1, 0, 0, 0),AutomaticSize=Enum.AutomaticSize.Y,BackgroundTransparency=1}, pPlayers);
+create("UIListLayout", {Padding=UDim.new(0, 6),SortOrder=Enum.SortOrder.LayoutOrder}, plist);
+function refreshPlayers()
+	for _, c in ipairs(plist:GetChildren()) do
+		if c:IsA("Frame") then
+			c:Destroy();
+		end
+	end
+	local order = 0;
+	for _, p in ipairs(Players:GetPlayers()) do
+		if (p ~= player) then
+			order += 1
+			makeRow(plist, p.DisplayName .. "  (@" .. p.Name .. ")", "teleport", function()
+				local tr = p.Character and p.Character:FindFirstChild("HumanoidRootPart");
+				local mr = getRoot();
+				if (not tr or not mr) then
+					notify("player has no character");
+					return;
+				end
+				lastCF = mr.CFrame;
+				tp(tr.CFrame * CFrame.new(0, 0, 3));
+			end, order);
+		end
+	end
+	if (order == 0) then
+		makeRow(plist, "nobody else in the server", "-", function()
+		end, 1);
+	end
+end
+track(Players.PlayerAdded:Connect(function()
+	if (currentTab == "Players") then
+		refreshPlayers();
+	end
+end));
+track(Players.PlayerRemoving:Connect(function()
+	task.defer(function()
+		if (alive and (currentTab == "Players")) then
+			refreshPlayers();
+		end
+	end);
+end));
+local espFolder = create("Folder", {Name="esp"}, gui);
+local espObjs = {};
+local COL_PLAYER = Color3.fromRGB(110, 200, 255);
+local COL_ENEMY = Color3.fromRGB(255, 80, 80);
+local COL_ITEM = Color3.fromRGB(170, 255, 120);
+local function espFor(key, adornee, color, hlTarget)
+	local o = espObjs[key];
+	if o then
+		if (o.gui.Adornee ~= adornee) then
+			o.gui.Adornee = adornee;
+		end
+		o.seen = true;
+		return o;
+	end
+	o = {seen=true};
+	o.gui = create("BillboardGui", {Adornee=adornee,AlwaysOnTop=true,Size=UDim2.fromOffset(160, 34),StudsOffset=Vector3.new(0, 2.5, 0),LightInfluence=0}, espFolder);
+	o.label = create("TextLabel", {Size=UDim2.fromScale(1, 1),BackgroundTransparency=1,Text="",TextColor3=color,TextStrokeTransparency=0.35,Font=Enum.Font.GothamBold,TextSize=13}, o.gui);
+	if hlTarget then
+		o.hl = create("Highlight", {Adornee=hlTarget,FillColor=color,FillTransparency=0.82,OutlineColor=color,DepthMode=Enum.HighlightDepthMode.AlwaysOnTop}, espFolder);
+	end
+	espObjs[key] = o;
+	return o;
+end
+local function espUpdate()
+	local cam = Workspace.CurrentCamera;
+	if not cam then
+		return;
+	end
+	local camPos = cam.CFrame.Position;
+	for _, o in pairs(espObjs) do
+		o.seen = false;
+	end
+	local function show(key, part, name, color, hlTarget)
+		if (not part or not part.Parent) then
+			return;
+		end
+		local pos = (part:IsA("Attachment") and part.WorldPosition) or part.Position;
+		local d = (pos - camPos).Magnitude;
+		if (d > cfg.espDist) then
+			return;
+		end
+		local o = espFor(key, part, color, hlTarget);
+		o.label.Text = name .. "\n" .. math.floor(d) .. "m";
+	end
+	if cfg.espPlayers then
+		for _, p in ipairs(Players:GetPlayers()) do
+			local c = p.Character;
+			if ((p ~= player) and c) then
+				show(c, c:FindFirstChild("HumanoidRootPart") or c.PrimaryPart, p.DisplayName, COL_PLAYER, c);
+			end
+		end
+	end
+	if cfg.espEnemies then
+		for m in pairs(enemies) do
+			if m.Parent then
+				local part = m:FindFirstChild("HumanoidRootPart") or m.PrimaryPart or m:FindFirstChildWhichIsA("BasePart", true);
+				show(m, part, m.Name, COL_ENEMY, m);
+			end
+		end
+	end
+	if cfg.espItems then
+		local f = string.lower(cfg.filter);
+		local list = {};
+		for inst, e in pairs(items) do
+			if (inst.Parent and ((f == "") or string.find(string.lower(e.label), f, 1, true)) and ((e.kind == "tool") or not ignoredBy(inst, e.label))) then
+				local part = partOf(inst);
+				if part then
+					local pos = (part:IsA("Attachment") and part.WorldPosition) or part.Position;
+					local d = (pos - camPos).Magnitude;
+					if (d <= cfg.espDist) then
+						table.insert(list, {inst=inst,part=part,label=e.label,d=d});
+					end
+				end
+			end
+		end
+		table.sort(list, function(a, b)
+			return a.d < b.d;
+		end);
+		for i = 1, math.min(#list, 40) do
+			local a = list[i];
+			show(a.inst, a.part, a.label, COL_ITEM, nil);
+		end
+	end
 	for key, o in pairs(espObjs) do
 		if not o.seen then
-			pcall(function() o.gui:Destroy() end)
-			if o.hl then pcall(function() o.hl:Destroy() end) end
-			espObjs[key] = nil
+			pcall(function()
+				o.gui:Destroy();
+			end);
+			if o.hl then
+				pcall(function()
+					o.hl:Destroy();
+				end);
+			end
+			espObjs[key] = nil;
 		end
 	end
 end
-
 task.spawn(function()
 	while alive do
-		pcall(espUpdate)
-		task.wait(0.15)
+		pcall(espUpdate);
+		task.wait(0.15);
 	end
-end)
-
-local pEsp = newPage("ESP")
-makeSection(pEsp, "ESP")
-makeToggle(pEsp, "players", false, function(v) cfg.espPlayers = v end)
-makeToggle(pEsp, "enemies", false, function(v) cfg.espEnemies = v end)
-makeToggle(pEsp, "items (follows item filter)", false, function(v) cfg.espItems = v end)
-makeSlider(pEsp, "max distance", 50, 2000, cfg.espDist, 10, function(v) cfg.espDist = v end)
+end);
+local pEsp = newPage("ESP");
+makeSection(pEsp, "ESP");
+makeToggle(pEsp, "players", false, function(v)
+	cfg.espPlayers = v;
+end);
+makeToggle(pEsp, "enemies", false, function(v)
+	cfg.espEnemies = v;
+end);
+makeToggle(pEsp, "items (follows item filter)", false, function(v)
+	cfg.espItems = v;
+end);
+makeSlider(pEsp, "max distance", 50, 2000, cfg.espDist, 10, function(v)
+	cfg.espDist = v;
+end);
 makeInput(pEsp, "enemy name match (blank = humanoids only)", cfg.enemyPattern, function(t)
-	cfg.enemyPattern = t
-	task.spawn(fullScan)
-end)
-
--- waypoints -----------------------------------------------------------------
-
-local HttpService = cr(game:GetService("HttpService"))
-local wpFile = "milk_gef_" .. tostring(game.PlaceId) .. ".json"
-local waypoints, homeCF = {}, nil
-local wpList, homeLbl
-
+	cfg.enemyPattern = t;
+	task.spawn(fullScan);
+end);
+local HttpService = cr(game:GetService("HttpService"));
+local wpFile = "milk_gef_" .. tostring(game.PlaceId) .. ".json";
+local waypoints, homeCF = {}, nil;
+local wpList, homeLbl;
 local function saveWaypoints()
-	if not writefile then return end
-	local data = { points = {} }
-	if homeCF then data.home = { homeCF:GetComponents() } end
-	for name, cf in pairs(waypoints) do data.points[name] = { cf:GetComponents() } end
-	pcall(function() writefile(wpFile, HttpService:JSONEncode(data)) end)
-end
-
-local function loadWaypoints()
-	if not (isfile and readfile) then return end
-	pcall(function()
-		if not isfile(wpFile) then return end
-		local data = HttpService:JSONDecode(readfile(wpFile))
-		if data.home then homeCF = CFrame.new(table.unpack(data.home)) end
-		for name, comps in pairs(data.points or {}) do
-			waypoints[name] = CFrame.new(table.unpack(comps))
-		end
-	end)
-end
-loadWaypoints()
-
-local function updateHomeLabel()
-	if not homeLbl then return end
+	if not writefile then
+		return;
+	end
+	local data = {points={}};
 	if homeCF then
-		homeLbl.Text = string.format("home set at %d, %d, %d", math.floor(homeCF.X), math.floor(homeCF.Y), math.floor(homeCF.Z))
+		data.home = {homeCF:GetComponents()};
+	end
+	for name, cf in pairs(waypoints) do
+		data.points[name] = {cf:GetComponents()};
+	end
+	pcall(function()
+		writefile(wpFile, HttpService:JSONEncode(data));
+	end);
+end
+local function loadWaypoints()
+	if not (isfile and readfile) then
+		return;
+	end
+	pcall(function()
+		if not isfile(wpFile) then
+			return;
+		end
+		local data = HttpService:JSONDecode(readfile(wpFile));
+		if data.home then
+			homeCF = CFrame.new(table.unpack(data.home));
+		end
+		for name, comps in pairs(data.points or {}) do
+			waypoints[name] = CFrame.new(table.unpack(comps));
+		end
+	end);
+end
+loadWaypoints();
+local function updateHomeLabel()
+	if not homeLbl then
+		return;
+	end
+	if homeCF then
+		homeLbl.Text = string.format("home set at %d, %d, %d", math.floor(homeCF.X), math.floor(homeCF.Y), math.floor(homeCF.Z));
 	else
-		homeLbl.Text = "home not set"
+		homeLbl.Text = "home not set";
 	end
 end
-
-goHome = function()
-	if not homeCF then notify("no home set") return end
-	tp(homeCF)
+function goHome()
+	if not homeCF then
+		notify("no home set");
+		return;
+	end
+	tp(homeCF);
 end
-
 local function smallBtn(row, text, x, bg, fg, cb)
-	local b = create("TextButton", {
-		Size = UDim2.fromOffset(62, 26), Position = UDim2.new(1, x, 0.5, -13), BackgroundColor3 = bg, Text = text,
-		TextColor3 = fg, Font = Enum.Font.GothamBold, TextSize = 12, AutoButtonColor = false, BorderSizePixel = 0,
-	}, row)
-	corner(b, 6)
-	hover(b, bg)
-	track(b.MouseButton1Click:Connect(function() safe(cb) end))
-	return b
+	local b = create("TextButton", {Size=UDim2.fromOffset(62, 26),Position=UDim2.new(1, x, 0.5, -13),BackgroundColor3=bg,Text=text,TextColor3=fg,Font=Enum.Font.GothamBold,TextSize=12,AutoButtonColor=false,BorderSizePixel=0}, row);
+	corner(b, 6);
+	hover(b, bg);
+	track(b.MouseButton1Click:Connect(function()
+		safe(cb);
+	end));
+	return b;
 end
-
-local refreshWps
-refreshWps = function()
+local function refreshWps()
 	for _, c in ipairs(wpList:GetChildren()) do
-		if c:IsA("Frame") then c:Destroy() end
+		if c:IsA("Frame") then
+			c:Destroy();
+		end
 	end
-	local names = {}
-	for name in pairs(waypoints) do table.insert(names, name) end
-	table.sort(names)
+	local names = {};
+	for name in pairs(waypoints) do
+		table.insert(names, name);
+	end
+	table.sort(names);
 	for i, name in ipairs(names) do
-		local row = create("Frame", { Size = UDim2.new(1, 0, 0, 36), BackgroundColor3 = SURFACE2, BorderSizePixel = 0, LayoutOrder = i }, wpList)
-		corner(row, 8)
-		create("TextLabel", {
-			Size = UDim2.new(1, -150, 1, 0), Position = UDim2.fromOffset(12, 0), BackgroundTransparency = 1, Text = name,
-			TextColor3 = TEXT, Font = Enum.Font.GothamMedium, TextSize = 12, TextXAlignment = Enum.TextXAlignment.Left,
-			TextTruncate = Enum.TextTruncate.AtEnd,
-		}, row)
+		local row = create("Frame", {Size=UDim2.new(1, 0, 0, 36),BackgroundColor3=SURFACE2,BorderSizePixel=0,LayoutOrder=i}, wpList);
+		corner(row, 8);
+		create("TextLabel", {Size=UDim2.new(1, -150, 1, 0),Position=UDim2.fromOffset(12, 0),BackgroundTransparency=1,Text=name,TextColor3=TEXT,Font=Enum.Font.GothamMedium,TextSize=12,TextXAlignment=Enum.TextXAlignment.Left,TextTruncate=Enum.TextTruncate.AtEnd}, row);
 		smallBtn(row, "go", -138, ACCENT, Color3.fromRGB(24, 14, 8), function()
-			local cf = waypoints[name]
-			if cf then tp(cf) end
-		end)
+			local cf = waypoints[name];
+			if cf then
+				tp(cf);
+			end
+		end);
 		smallBtn(row, "delete", -70, SURFACE, TEXT, function()
-			waypoints[name] = nil
-			saveWaypoints()
-			refreshWps()
-		end)
+			waypoints[name] = nil;
+			saveWaypoints();
+			refreshWps();
+		end);
 	end
 end
-
-local pWp = newPage("Waypoints")
-makeSection(pWp, "HOME / BASE")
-homeLbl = padLabel(makeLabel(pWp, "home not set", 32))
+local pWp = newPage("Waypoints");
+makeSection(pWp, "HOME / BASE");
+homeLbl = padLabel(makeLabel(pWp, "home not set", 32));
 makeButton(pWp, "set home here", function()
-	local r = getRoot()
-	if not r then notify("no character") return end
-	homeCF = r.CFrame
-	saveWaypoints()
-	updateHomeLabel()
-	notify("home saved")
-end, true)
-makeButton(pWp, "go home", function() goHome() end, true)
-makeSection(pWp, "WAYPOINTS")
-local wpName = ""
-makeInput(pWp, "waypoint name", "", function(t) wpName = t end, true)
-makeButton(pWp, "add waypoint here", function()
-	local r = getRoot()
-	if not r then notify("no character") return end
-	local name = wpName
-	if name == "" then
-		local n = 0
-		for _ in pairs(waypoints) do n += 1 end
-		name = "waypoint " .. (n + 1)
+	local r = getRoot();
+	if not r then
+		notify("no character");
+		return;
 	end
-	waypoints[name] = r.CFrame
-	saveWaypoints()
-	refreshWps()
-	notify("saved: " .. name)
-end)
-wpList = create("Frame", { Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1 }, pWp)
-create("UIListLayout", { Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder }, wpList)
-updateHomeLabel()
-refreshWps()
-
--- misc ----------------------------------------------------------------------
-
-local RunService = cr(game:GetService("RunService"))
-local Lighting = cr(game:GetService("Lighting"))
-local TeleportService = cr(game:GetService("TeleportService"))
-local VirtualUser = cr(game:GetService("VirtualUser"))
-
-local misc = {
-	fullbright = false, speed = false, speedVal = 20, jump = false, noclip = false,
-	fly = false, flySpeed = 60, antiAfk = true, clickTp = false,
-}
-local lightSaved
-
+	homeCF = r.CFrame;
+	saveWaypoints();
+	updateHomeLabel();
+	notify("home saved");
+end, true);
+makeButton(pWp, "go home", function()
+	goHome();
+end, true);
+makeSection(pWp, "WAYPOINTS");
+local wpName = "";
+makeInput(pWp, "waypoint name", "", function(t)
+	wpName = t;
+end, true);
+makeButton(pWp, "add waypoint here", function()
+	local r = getRoot();
+	if not r then
+		notify("no character");
+		return;
+	end
+	local name = wpName;
+	if (name == "") then
+		local n = 0;
+		for _ in pairs(waypoints) do
+			n += 1
+		end
+		name = "waypoint " .. (n + 1);
+	end
+	waypoints[name] = r.CFrame;
+	saveWaypoints();
+	refreshWps();
+	notify("saved: " .. name);
+end);
+wpList = create("Frame", {Size=UDim2.new(1, 0, 0, 0),AutomaticSize=Enum.AutomaticSize.Y,BackgroundTransparency=1}, pWp);
+create("UIListLayout", {Padding=UDim.new(0, 6),SortOrder=Enum.SortOrder.LayoutOrder}, wpList);
+updateHomeLabel();
+refreshWps();
+local RunService = cr(game:GetService("RunService"));
+local Lighting = cr(game:GetService("Lighting"));
+local TeleportService = cr(game:GetService("TeleportService"));
+local VirtualUser = cr(game:GetService("VirtualUser"));
+local misc = {fullbright=false,speed=false,speedVal=20,jump=false,noclip=false,fly=false,flySpeed=60,antiAfk=true,clickTp=false};
+local lightSaved;
 local function setFullbright(on)
 	if on then
 		if not lightSaved then
-			lightSaved = {}
-			for _, k in ipairs({ "Brightness", "ClockTime", "FogStart", "FogEnd", "GlobalShadows", "Ambient", "OutdoorAmbient" }) do
-				lightSaved[k] = Lighting[k]
+			lightSaved = {};
+			for _, k in ipairs({"Brightness","ClockTime","FogStart","FogEnd","GlobalShadows","Ambient","OutdoorAmbient"}) do
+				lightSaved[k] = Lighting[k];
 			end
-			local atm = Lighting:FindFirstChildOfClass("Atmosphere")
-			if atm then lightSaved.atm = { Density = atm.Density, Haze = atm.Haze } end
+			local atm = Lighting:FindFirstChildOfClass("Atmosphere");
+			if atm then
+				lightSaved.atm = {Density=atm.Density,Haze=atm.Haze};
+			end
 		end
 	elseif lightSaved then
 		for k, v in pairs(lightSaved) do
-			if k ~= "atm" then pcall(function() Lighting[k] = v end) end
+			if (k ~= "atm") then
+				pcall(function()
+					Lighting[k] = v;
+				end);
+			end
 		end
-		local atm = Lighting:FindFirstChildOfClass("Atmosphere")
-		if atm and lightSaved.atm then
-			atm.Density = lightSaved.atm.Density
-			atm.Haze = lightSaved.atm.Haze
+		local atm = Lighting:FindFirstChildOfClass("Atmosphere");
+		if (atm and lightSaved.atm) then
+			atm.Density = lightSaved.atm.Density;
+			atm.Haze = lightSaved.atm.Haze;
 		end
-		lightSaved = nil
+		lightSaved = nil;
 	end
-	misc.fullbright = on
+	misc.fullbright = on;
 end
-
 local function restoreCollision()
-	local c = player.Character
-	if not c then return end
-	for _, n in ipairs({ "HumanoidRootPart", "Head", "Torso", "UpperTorso", "LowerTorso" }) do
-		local p = c:FindFirstChild(n)
-		if p and p:IsA("BasePart") then p.CanCollide = true end
+	local c = player.Character;
+	if not c then
+		return;
+	end
+	for _, n in ipairs({"HumanoidRootPart","Head","Torso","UpperTorso","LowerTorso"}) do
+		local p = c:FindFirstChild(n);
+		if (p and p:IsA("BasePart")) then
+			p.CanCollide = true;
+		end
 	end
 end
-
 track(RunService.Heartbeat:Connect(function(dt)
 	if misc.fullbright then
-		Lighting.Brightness = 2
-		Lighting.ClockTime = 14
-		Lighting.FogStart = 0
-		Lighting.FogEnd = 1e6
-		Lighting.GlobalShadows = false
-		Lighting.Ambient = Color3.fromRGB(178, 178, 178)
-		Lighting.OutdoorAmbient = Color3.fromRGB(178, 178, 178)
-		local atm = Lighting:FindFirstChildOfClass("Atmosphere")
+		Lighting.Brightness = 2;
+		Lighting.ClockTime = 14;
+		Lighting.FogStart = 0;
+		Lighting.FogEnd = 1000000;
+		Lighting.GlobalShadows = false;
+		Lighting.Ambient = Color3.fromRGB(178, 178, 178);
+		Lighting.OutdoorAmbient = Color3.fromRGB(178, 178, 178);
+		local atm = Lighting:FindFirstChildOfClass("Atmosphere");
 		if atm then
-			atm.Density = 0
-			atm.Haze = 0
+			atm.Density = 0;
+			atm.Haze = 0;
 		end
 	end
-	local root, hum = getRoot(), getHum()
-	if not root or not hum then return end
-	if misc.speed and not misc.fly and hum.MoveDirection.Magnitude > 0 then
-		root.CFrame = root.CFrame + hum.MoveDirection * misc.speedVal * dt
+	local root, hum = getRoot(), getHum();
+	if (not root or not hum) then
+		return;
 	end
-	if misc.fly and not UIS:GetFocusedTextBox() then
-		local cam = Workspace.CurrentCamera
-		local cf = cam.CFrame
-		local v = Vector3.zero
-		if UIS:IsKeyDown(Enum.KeyCode.W) then v += cf.LookVector end
-		if UIS:IsKeyDown(Enum.KeyCode.S) then v -= cf.LookVector end
-		if UIS:IsKeyDown(Enum.KeyCode.D) then v += cf.RightVector end
-		if UIS:IsKeyDown(Enum.KeyCode.A) then v -= cf.RightVector end
-		if UIS:IsKeyDown(Enum.KeyCode.Space) then v += Vector3.yAxis end
-		if UIS:IsKeyDown(Enum.KeyCode.LeftControl) then v -= Vector3.yAxis end
-		root.AssemblyLinearVelocity = v.Magnitude > 0 and v.Unit * misc.flySpeed or Vector3.zero
+	if (misc.speed and not misc.fly and (hum.MoveDirection.Magnitude > 0)) then
+		root.CFrame = root.CFrame + (hum.MoveDirection * misc.speedVal * dt);
 	end
-end))
-
+	if (misc.fly and not UIS:GetFocusedTextBox()) then
+		local cam = Workspace.CurrentCamera;
+		local cf = cam.CFrame;
+		local v = Vector3.zero;
+		if UIS:IsKeyDown(Enum.KeyCode.W) then
+			v += cf.LookVector
+		end
+		if UIS:IsKeyDown(Enum.KeyCode.S) then
+			v -= cf.LookVector
+		end
+		if UIS:IsKeyDown(Enum.KeyCode.D) then
+			v += cf.RightVector
+		end
+		if UIS:IsKeyDown(Enum.KeyCode.A) then
+			v -= cf.RightVector
+		end
+		if UIS:IsKeyDown(Enum.KeyCode.Space) then
+			v += Vector3.yAxis
+		end
+		if UIS:IsKeyDown(Enum.KeyCode.LeftControl) then
+			v -= Vector3.yAxis
+		end
+		root.AssemblyLinearVelocity = ((v.Magnitude > 0) and (v.Unit * misc.flySpeed)) or Vector3.zero;
+	end
+end));
 track(RunService.Stepped:Connect(function()
-	if not misc.noclip then return end
-	local c = player.Character
-	if not c then return end
+	if not misc.noclip then
+		return;
+	end
+	local c = player.Character;
+	if not c then
+		return;
+	end
 	for _, p in ipairs(c:GetDescendants()) do
-		if p:IsA("BasePart") and p.CanCollide then p.CanCollide = false end
+		if (p:IsA("BasePart") and p.CanCollide) then
+			p.CanCollide = false;
+		end
 	end
-end))
-
+end));
 track(UIS.JumpRequest:Connect(function()
-	if not misc.jump then return end
-	local h = getHum()
-	if h then h:ChangeState(Enum.HumanoidStateType.Jumping) end
-end))
-
-track(player.Idled:Connect(function()
-	if not misc.antiAfk then return end
-	pcall(function()
-		VirtualUser:CaptureController()
-		VirtualUser:ClickButton2(Vector2.new())
-	end)
-end))
-
-track(UIS.InputBegan:Connect(function(i, gpe)
-	if gpe or not misc.clickTp then return end
-	if i.UserInputType == Enum.UserInputType.MouseButton1 and UIS:IsKeyDown(Enum.KeyCode.LeftControl) then
-		local m = player:GetMouse()
-		if m.Hit then tp(CFrame.new(m.Hit.Position + Vector3.new(0, 3, 0))) end
+	if not misc.jump then
+		return;
 	end
-end))
-
+	local h = getHum();
+	if h then
+		h:ChangeState(Enum.HumanoidStateType.Jumping);
+	end
+end));
+track(player.Idled:Connect(function()
+	if not misc.antiAfk then
+		return;
+	end
+	pcall(function()
+		VirtualUser:CaptureController();
+		VirtualUser:ClickButton2(Vector2.new());
+	end);
+end));
+track(UIS.InputBegan:Connect(function(i, gpe)
+	if (gpe or not misc.clickTp) then
+		return;
+	end
+	if ((i.UserInputType == Enum.UserInputType.MouseButton1) and UIS:IsKeyDown(Enum.KeyCode.LeftControl)) then
+		local m = player:GetMouse();
+		if m.Hit then
+			tp(CFrame.new(m.Hit.Position + Vector3.new(0, 3, 0)));
+		end
+	end
+end));
 local function serverHop()
-	local url = "https://games.roblox.com/v1/games/" .. game.PlaceId .. "/servers/Public?sortOrder=Asc&limit=100"
+	local url = "https://games.roblox.com/v1/games/" .. game.PlaceId .. "/servers/Public?sortOrder=Asc&limit=100";
 	local ok, body = pcall(function()
 		if request then
-			return request({ Url = url, Method = "GET" }).Body
+			return request({Url=url,Method="GET"}).Body;
 		end
-		return game:HttpGet(url)
-	end)
-	if not ok then notify("server list failed") return end
-	local ok2, data = pcall(function() return HttpService:JSONDecode(body) end)
-	if not ok2 or not data.data then notify("bad server list") return end
+		return game:HttpGet(url);
+	end);
+	if not ok then
+		notify("server list failed");
+		return;
+	end
+	local ok2, data = pcall(function()
+		return HttpService:JSONDecode(body);
+	end);
+	if (not ok2 or not data.data) then
+		notify("bad server list");
+		return;
+	end
 	for _, s in ipairs(data.data) do
-		if s.id ~= game.JobId and s.playing < s.maxPlayers then
-			notify("hopping...")
-			pcall(function() TeleportService:TeleportToPlaceInstance(game.PlaceId, s.id, player) end)
-			return
+		if ((s.id ~= game.JobId) and (s.playing < s.maxPlayers)) then
+			notify("hopping...");
+			pcall(function()
+				TeleportService:TeleportToPlaceInstance(game.PlaceId, s.id, player);
+			end);
+			return;
 		end
 	end
-	notify("no other server found")
+	notify("no other server found");
 end
-
-local pMisc = newPage("Misc")
-makeSection(pMisc, "VISUAL")
-makeToggle(pMisc, "fullbright (no fog, no night)", false, setFullbright)
-makeSection(pMisc, "MOVEMENT")
-makeToggle(pMisc, "speed boost", false, function(v) misc.speed = v end)
-makeSlider(pMisc, "speed boost amount", 5, 100, misc.speedVal, 1, function(v) misc.speedVal = v end)
+local pMisc = newPage("Misc");
+makeSection(pMisc, "VISUAL");
+makeToggle(pMisc, "fullbright (no fog, no night)", false, setFullbright);
+makeSection(pMisc, "MOVEMENT");
+makeToggle(pMisc, "speed boost", false, function(v)
+	misc.speed = v;
+end);
+makeSlider(pMisc, "speed boost amount", 5, 100, misc.speedVal, 1, function(v)
+	misc.speedVal = v;
+end);
 makeToggle(pMisc, "fly (wasd, space, ctrl)", false, function(v)
-	misc.fly = v
+	misc.fly = v;
 	if not v then
-		local r = getRoot()
-		if r then r.AssemblyLinearVelocity = Vector3.zero end
+		local r = getRoot();
+		if r then
+			r.AssemblyLinearVelocity = Vector3.zero;
+		end
 	end
-end)
-makeSlider(pMisc, "fly speed", 10, 150, misc.flySpeed, 5, function(v) misc.flySpeed = v end)
+end);
+makeSlider(pMisc, "fly speed", 10, 150, misc.flySpeed, 5, function(v)
+	misc.flySpeed = v;
+end);
 makeToggle(pMisc, "noclip", false, function(v)
-	misc.noclip = v
-	if not v then restoreCollision() end
-end)
-makeToggle(pMisc, "infinite jump", false, function(v) misc.jump = v end)
-makeToggle(pMisc, "ctrl + click teleport", false, function(v) misc.clickTp = v end)
-makeSection(pMisc, "SERVER")
-makeToggle(pMisc, "anti afk", true, function(v) misc.antiAfk = v end)
+	misc.noclip = v;
+	if not v then
+		restoreCollision();
+	end
+end);
+makeToggle(pMisc, "infinite jump", false, function(v)
+	misc.jump = v;
+end);
+makeToggle(pMisc, "ctrl + click teleport", false, function(v)
+	misc.clickTp = v;
+end);
+makeSection(pMisc, "SERVER");
+makeToggle(pMisc, "anti afk", true, function(v)
+	misc.antiAfk = v;
+end);
 makeButton(pMisc, "copy my position", function()
-	local r = getRoot()
-	if not r then notify("no character") return end
+	local r = getRoot();
+	if not r then
+		notify("no character");
+		return;
+	end
 	if setclipboard then
-		local p = r.Position
-		setclipboard(string.format("%.1f, %.1f, %.1f", p.X, p.Y, p.Z))
-		notify("position copied")
+		local p = r.Position;
+		setclipboard(string.format("%.1f, %.1f, %.1f", p.X, p.Y, p.Z));
+		notify("position copied");
 	else
-		notify("executor has no setclipboard")
+		notify("executor has no setclipboard");
 	end
-end)
+end);
 makeButton(pMisc, "rejoin server", function()
-	if #Players:GetPlayers() <= 1 then
-		player:Kick("rejoining")
-		task.wait()
-		TeleportService:Teleport(game.PlaceId, player)
+	if (#Players:GetPlayers() <= 1) then
+		player:Kick("rejoining");
+		task.wait();
+		TeleportService:Teleport(game.PlaceId, player);
 	else
-		TeleportService:TeleportToPlaceInstance(game.PlaceId, game.JobId, player)
+		TeleportService:TeleportToPlaceInstance(game.PlaceId, game.JobId, player);
 	end
-end)
-makeButton(pMisc, "server hop", function() serverHop() end)
-
--- audio ---------------------------------------------------------------------
-
-local JINGLE_URL = "https://github.com/svevvenonetwoo72/something/raw/refs/heads/main/weird-route-jingle.mp3"
-local DATA_DIR = "milk_gef"
-local jingle = { sound = nil, ready = false, failed = false }
-local introGui
-
+end);
+makeButton(pMisc, "server hop", function()
+	serverHop();
+end);
+local JINGLE_URL = "https://github.com/svevvenonetwoo72/something/raw/refs/heads/main/weird-route-jingle.mp3";
+local DATA_DIR = "milk_gef";
+local jingle = {sound=nil,ready=false,failed=false};
+local introGui;
 local function loadJingle()
 	local ok = pcall(function()
-		if not (writefile and getcustomasset) then error("no file api") end
-		if makefolder and isfolder and not isfolder(DATA_DIR) then makefolder(DATA_DIR) end
-		local path = DATA_DIR .. "/weird-route-jingle.mp3"
-		local have = false
-		if isfile and isfile(path) then
-			local okr, data = pcall(readfile, path)
-			have = okr and type(data) == "string" and #data > 1000
+		if not (writefile and getcustomasset) then
+			error("no file api");
+		end
+		if (makefolder and isfolder and not isfolder(DATA_DIR)) then
+			makefolder(DATA_DIR);
+		end
+		local path = DATA_DIR .. "/weird-route-jingle.mp3";
+		local have = false;
+		if (isfile and isfile(path)) then
+			local okr, data = pcall(readfile, path);
+			have = okr and (type(data) == "string") and (#data > 1000);
 		end
 		if not have then
-			local body
+			local body;
 			if request then
-				local okq, res = pcall(request, { Url = JINGLE_URL, Method = "GET" })
-				if okq and res and res.StatusCode == 200 then body = res.Body end
+				local okq, res = pcall(request, {Url=JINGLE_URL,Method="GET"});
+				if (okq and res and (res.StatusCode == 200)) then
+					body = res.Body;
+				end
 			end
-			if not body or #body < 1000 then
-				local okh, b = pcall(function() return game:HttpGet(JINGLE_URL) end)
-				if okh then body = b end
+			if (not body or (#body < 1000)) then
+				local okh, b = pcall(function()
+					return game:HttpGet(JINGLE_URL);
+				end);
+				if okh then
+					body = b;
+				end
 			end
-			if type(body) ~= "string" or #body < 1000 then error("download failed") end
-			writefile(path, body)
+			if ((type(body) ~= "string") or (#body < 1000)) then
+				error("download failed");
+			end
+			writefile(path, body);
 		end
-		local sound = Instance.new("Sound")
-		sound.Name = "MilkGefJingle"
-		sound.SoundId = getcustomasset(path)
-		sound.Volume = 0.8
-		sound.Parent = cr(game:GetService("SoundService"))
-		jingle.sound = sound
-	end)
-	jingle.failed = not ok
-	jingle.ready = true
+		local sound = Instance.new("Sound");
+		sound.Name = "MilkGefJingle";
+		sound.SoundId = getcustomasset(path);
+		sound.Volume = 0.8;
+		sound.Parent = cr(game:GetService("SoundService"));
+		jingle.sound = sound;
+	end);
+	jingle.failed = not ok;
+	jingle.ready = true;
 end
-
 local function playJingle()
-	local s = jingle.sound
+	local s = jingle.sound;
 	if not s then
-		if jingle.failed then notify("jingle failed to load") end
-		return
+		if jingle.failed then
+			notify("jingle failed to load");
+		end
+		return;
 	end
-	local t = tick()
-	while alive and not s.IsLoaded and tick() - t < 3 do task.wait() end
-	if alive then s:Play() end
+	local t = tick();
+	while alive and not s.IsLoaded and ((tick() - t) < 3) do
+		task.wait();
+	end
+	if alive then
+		s:Play();
+	end
 end
-
 local function introSkipped()
-	if env.MilkGefSkipIntro then return true end
-	return isfile ~= nil and isfile(DATA_DIR .. "/skip_intro")
+	if env.MilkGefSkipIntro then
+		return true;
+	end
+	return (isfile ~= nil) and isfile(DATA_DIR .. "/skip_intro");
 end
-
 local function setIntroSkip(skip)
-	env.MilkGefSkipIntro = skip or nil
+	env.MilkGefSkipIntro = skip or nil;
 	pcall(function()
 		if skip then
-			if makefolder and isfolder and not isfolder(DATA_DIR) then makefolder(DATA_DIR) end
-			writefile(DATA_DIR .. "/skip_intro", "1")
-		elseif isfile and isfile(DATA_DIR .. "/skip_intro") and delfile then
-			delfile(DATA_DIR .. "/skip_intro")
+			if (makefolder and isfolder and not isfolder(DATA_DIR)) then
+				makefolder(DATA_DIR);
+			end
+			writefile(DATA_DIR .. "/skip_intro", "1");
+		elseif (isfile and isfile(DATA_DIR .. "/skip_intro") and delfile) then
+			delfile(DATA_DIR .. "/skip_intro");
 		end
-	end)
+	end);
 end
-
--- system --------------------------------------------------------------------
-
 local function cleanup()
-	alive = false
-	state.building = false
-	state.learning = false
-	misc.fly = false
-	if misc.noclip then misc.noclip = false pcall(restoreCollision) end
-	pcall(setFullbright, false)
-	if jingle.sound then pcall(function() jingle.sound:Destroy() end) end
-	if introGui then pcall(function() introGui:Destroy() end) end
-	bridge.capture = nil
-	for _, c in ipairs(conns) do pcall(function() c:Disconnect() end) end
-	conns = {}
-	pcall(function() gui:Destroy() end)
+	alive = false;
+	state.building = false;
+	state.learning = false;
+	misc.fly = false;
+	if misc.noclip then
+		misc.noclip = false;
+		pcall(restoreCollision);
+	end
+	pcall(setFullbright, false);
+	if jingle.sound then
+		pcall(function()
+			jingle.sound:Destroy();
+		end);
+	end
+	if introGui then
+		pcall(function()
+			introGui:Destroy();
+		end);
+	end
+	bridge.capture = nil;
+	for _, c in ipairs(conns) do
+		pcall(function()
+			c:Disconnect();
+		end);
+	end
+	conns = {};
+	pcall(function()
+		gui:Destroy();
+	end);
 end
-env.MilkGefCleanup = cleanup
-
-local pSys = newPage("System")
-makeSection(pSys, "SYSTEM")
-padLabel(makeLabel(pSys, "RightShift hides or shows the window. drag the header to move it.", 52))
-makeToggle(pSys, "skip intro next launch", introSkipped(), function(v) setIntroSkip(v) end)
-makeButton(pSys, "unload script", function() cleanup() end, true)
-
--- intro ---------------------------------------------------------------------
-
+env.MilkGefCleanup = cleanup;
+local pSys = newPage("System");
+makeSection(pSys, "SYSTEM");
+padLabel(makeLabel(pSys, "RightShift hides or shows the window. drag the header to move it.", 52));
+makeToggle(pSys, "skip intro next launch", introSkipped(), function(v)
+	setIntroSkip(v);
+end);
+makeButton(pSys, "unload script", function()
+	cleanup();
+end, true);
 local function runIntro(onDone)
 	if introSkipped() then
-		onDone(true)
-		return
+		onDone(true);
+		return;
 	end
-	task.spawn(loadJingle)
-
-	local ig = create("ScreenGui", {
-		Name = "MilkGEFIntro", ResetOnSpawn = false, IgnoreGuiInset = true, DisplayOrder = 100,
-		ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
-	})
-	local okp = pcall(function() ig.Parent = gui.Parent end)
-	if not okp or not ig.Parent then ig.Parent = player:WaitForChild("PlayerGui") end
-	introGui = ig
-
-	local cam = Workspace.CurrentCamera
-	local vp = cam and cam.ViewportSize or Vector2.new(1280, 720)
-	local ts = math.clamp(math.floor(vp.X / 9), 56, 120)
-	local cy = 0.42
-	local below = math.floor(ts * 0.62)
-
-	local skipped = false
-	local running = true
-	local function go() return alive and not skipped end
-
-	local bg = create("Frame", {
-		Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.fromRGB(6, 6, 9), BackgroundTransparency = 1,
-		BorderSizePixel = 0, ZIndex = 1,
-	}, ig)
-	local skipBtn = create("TextButton", {
-		Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Text = "", ZIndex = 50,
-	}, ig)
-	skipBtn.MouseButton1Click:Connect(function() skipped = true end)
-
-	local scan = create("Frame", {
-		Size = UDim2.new(1, 0, 0, 2), Position = UDim2.new(0, 0, 0, -4), BackgroundColor3 = ACCENT,
-		BackgroundTransparency = 0.82, BorderSizePixel = 0, ZIndex = 2,
-	}, bg)
+	task.spawn(loadJingle);
+	local ig = create("ScreenGui", {Name="MilkGEFIntro",ResetOnSpawn=false,IgnoreGuiInset=true,DisplayOrder=100,ZIndexBehavior=Enum.ZIndexBehavior.Sibling});
+	local okp = pcall(function()
+		ig.Parent = gui.Parent;
+	end);
+	if (not okp or not ig.Parent) then
+		ig.Parent = player:WaitForChild("PlayerGui");
+	end
+	introGui = ig;
+	local cam = Workspace.CurrentCamera;
+	local vp = (cam and cam.ViewportSize) or Vector2.new(1280, 720);
+	local ts = math.clamp(math.floor(vp.X / 9), 56, 120);
+	local cy = 0.42;
+	local below = math.floor(ts * 0.62);
+	local skipped = false;
+	local running = true;
+	local function go()
+		return alive and not skipped;
+	end
+	local bg = create("Frame", {Size=UDim2.fromScale(1, 1),BackgroundColor3=Color3.fromRGB(6, 6, 9),BackgroundTransparency=1,BorderSizePixel=0,ZIndex=1}, ig);
+	local skipBtn = create("TextButton", {Size=UDim2.fromScale(1, 1),BackgroundTransparency=1,Text="",ZIndex=50}, ig);
+	skipBtn.MouseButton1Click:Connect(function()
+		skipped = true;
+	end);
+	local scan = create("Frame", {Size=UDim2.new(1, 0, 0, 2),Position=UDim2.new(0, 0, 0, -4),BackgroundColor3=ACCENT,BackgroundTransparency=0.82,BorderSizePixel=0,ZIndex=2}, bg);
 	task.spawn(function()
 		while running and alive do
-			scan.Position = UDim2.new(0, 0, 0, -4)
-			TweenService:Create(scan, TweenInfo.new(1.8, Enum.EasingStyle.Linear), { Position = UDim2.new(0, 0, 1, 0) }):Play()
-			task.wait(1.8)
+			scan.Position = UDim2.new(0, 0, 0, -4);
+			TweenService:Create(scan, TweenInfo.new(1.8, Enum.EasingStyle.Linear), {Position=UDim2.new(0, 0, 1, 0)}):Play();
+			task.wait(1.8);
 		end
-	end)
-
+	end);
 	local function titleLabel(color, z)
-		return create("TextLabel", {
-			AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0.5, 0, cy, 0),
-			Size = UDim2.fromOffset(ts * 5, math.floor(ts * 1.2)), BackgroundTransparency = 1, Text = "",
-			TextColor3 = color, Font = Enum.Font.GothamBlack, TextSize = ts, TextTransparency = 1, ZIndex = z,
-		}, bg)
+		return create("TextLabel", {AnchorPoint=Vector2.new(0.5, 0.5),Position=UDim2.new(0.5, 0, cy, 0),Size=UDim2.fromOffset(ts * 5, math.floor(ts * 1.2)),BackgroundTransparency=1,Text="",TextColor3=color,Font=Enum.Font.GothamBlack,TextSize=ts,TextTransparency=1,ZIndex=z}, bg);
 	end
-	local ghostR = titleLabel(Color3.fromRGB(255, 60, 90), 3)
-	local ghostC = titleLabel(Color3.fromRGB(60, 220, 255), 3)
-	local title = titleLabel(ACCENT, 4)
-
-	local line = create("Frame", {
-		AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, cy, below + 4), Size = UDim2.fromOffset(0, 2),
-		BackgroundColor3 = ACCENT, BorderSizePixel = 0, ZIndex = 4,
-	}, bg)
-	local sub = create("TextLabel", {
-		AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, cy, below + 16), Size = UDim2.fromOffset(460, 22),
-		BackgroundTransparency = 1, Text = "", TextColor3 = MUTED, Font = Enum.Font.GothamMedium, TextSize = 16, ZIndex = 4,
-	}, bg)
-	local status = create("TextLabel", {
-		AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, cy, below + 58), Size = UDim2.fromOffset(360, 16),
-		BackgroundTransparency = 1, Text = "", TextColor3 = MUTED, Font = Enum.Font.Gotham, TextSize = 12,
-		TextTransparency = 1, ZIndex = 4,
-	}, bg)
-	local barBack = create("Frame", {
-		AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, cy, below + 78), Size = UDim2.fromOffset(360, 4),
-		BackgroundColor3 = SURFACE2, BackgroundTransparency = 1, BorderSizePixel = 0, ZIndex = 4,
-	}, bg)
-	corner(barBack, 2)
-	local barFill = create("Frame", {
-		Size = UDim2.new(0, 0, 1, 0), BackgroundColor3 = ACCENT, BorderSizePixel = 0, ZIndex = 5,
-	}, barBack)
-	corner(barFill, 2)
-	local sig = create("TextLabel", {
-		AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -24), Size = UDim2.fromOffset(300, 16),
-		BackgroundTransparency = 1, Text = "made by nexus", TextColor3 = MUTED, Font = Enum.Font.GothamMedium,
-		TextSize = 12, TextTransparency = 1, ZIndex = 4,
-	}, bg)
-	local hint = create("TextLabel", {
-		AnchorPoint = Vector2.new(1, 1), Position = UDim2.new(1, -16, 1, -14), Size = UDim2.fromOffset(160, 14),
-		BackgroundTransparency = 1, Text = "click to skip", TextColor3 = MUTED, Font = Enum.Font.Gotham,
-		TextSize = 11, TextTransparency = 1, TextXAlignment = Enum.TextXAlignment.Right, ZIndex = 4,
-	}, bg)
-
+	local ghostR = titleLabel(Color3.fromRGB(255, 60, 90), 3);
+	local ghostC = titleLabel(Color3.fromRGB(60, 220, 255), 3);
+	local title = titleLabel(ACCENT, 4);
+	local line = create("Frame", {AnchorPoint=Vector2.new(0.5, 0),Position=UDim2.new(0.5, 0, cy, below + 4),Size=UDim2.fromOffset(0, 2),BackgroundColor3=ACCENT,BorderSizePixel=0,ZIndex=4}, bg);
+	local sub = create("TextLabel", {AnchorPoint=Vector2.new(0.5, 0),Position=UDim2.new(0.5, 0, cy, below + 16),Size=UDim2.fromOffset(460, 22),BackgroundTransparency=1,Text="",TextColor3=MUTED,Font=Enum.Font.GothamMedium,TextSize=16,ZIndex=4}, bg);
+	local status = create("TextLabel", {AnchorPoint=Vector2.new(0.5, 0),Position=UDim2.new(0.5, 0, cy, below + 58),Size=UDim2.fromOffset(360, 16),BackgroundTransparency=1,Text="",TextColor3=MUTED,Font=Enum.Font.Gotham,TextSize=12,TextTransparency=1,ZIndex=4}, bg);
+	local barBack = create("Frame", {AnchorPoint=Vector2.new(0.5, 0),Position=UDim2.new(0.5, 0, cy, below + 78),Size=UDim2.fromOffset(360, 4),BackgroundColor3=SURFACE2,BackgroundTransparency=1,BorderSizePixel=0,ZIndex=4}, bg);
+	corner(barBack, 2);
+	local barFill = create("Frame", {Size=UDim2.new(0, 0, 1, 0),BackgroundColor3=ACCENT,BorderSizePixel=0,ZIndex=5}, barBack);
+	corner(barFill, 2);
+	local sig = create("TextLabel", {AnchorPoint=Vector2.new(0.5, 1),Position=UDim2.new(0.5, 0, 1, -24),Size=UDim2.fromOffset(300, 16),BackgroundTransparency=1,Text="made by nexus",TextColor3=MUTED,Font=Enum.Font.GothamMedium,TextSize=12,TextTransparency=1,ZIndex=4}, bg);
+	local hint = create("TextLabel", {AnchorPoint=Vector2.new(1, 1),Position=UDim2.new(1, -16, 1, -14),Size=UDim2.fromOffset(160, 14),BackgroundTransparency=1,Text="click to skip",TextColor3=MUTED,Font=Enum.Font.Gotham,TextSize=11,TextTransparency=1,TextXAlignment=Enum.TextXAlignment.Right,ZIndex=4}, bg);
 	local function setProgress(p, text)
-		status.Text = text
-		tween(barFill, { Size = UDim2.new(p, 0, 1, 0) }, 0.35)
+		status.Text = text;
+		tween(barFill, {Size=UDim2.new(p, 0, 1, 0)}, 0.35);
 	end
-
 	local function glitch(duration)
-		local stop = tick() + duration
-		while tick() < stop and go() do
-			local dx = math.random(3, 10)
-			ghostR.Position = UDim2.new(0.5, -dx, cy, math.random(-3, 3))
-			ghostC.Position = UDim2.new(0.5, dx, cy, math.random(-3, 3))
-			ghostR.TextTransparency = 0.45
-			ghostC.TextTransparency = 0.45
-			title.Position = UDim2.new(0.5, math.random(-3, 3), cy, math.random(-2, 2))
-			task.wait(0.04)
+		local stop = tick() + duration;
+		while (tick() < stop) and go() do
+			local dx = math.random(3, 10);
+			ghostR.Position = UDim2.new(0.5, -dx, cy, math.random(-3, 3));
+			ghostC.Position = UDim2.new(0.5, dx, cy, math.random(-3, 3));
+			ghostR.TextTransparency = 0.45;
+			ghostC.TextTransparency = 0.45;
+			title.Position = UDim2.new(0.5, math.random(-3, 3), cy, math.random(-2, 2));
+			task.wait(0.04);
 		end
-		ghostR.TextTransparency = 1
-		ghostC.TextTransparency = 1
-		ghostR.Position = UDim2.new(0.5, 0, cy, 0)
-		ghostC.Position = UDim2.new(0.5, 0, cy, 0)
-		title.Position = UDim2.new(0.5, 0, cy, 0)
+		ghostR.TextTransparency = 1;
+		ghostC.TextTransparency = 1;
+		ghostR.Position = UDim2.new(0.5, 0, cy, 0);
+		ghostC.Position = UDim2.new(0.5, 0, cy, 0);
+		title.Position = UDim2.new(0.5, 0, cy, 0);
 	end
-
-	-- fade in
-	tween(bg, { BackgroundTransparency = 0 }, 0.4)
-	tween(sig, { TextTransparency = 0.2 }, 0.8)
-	tween(hint, { TextTransparency = 0.5 }, 0.8)
-	task.wait(0.5)
-
-	-- scramble reveal
-	local word = "GEF"
-	local chars = "#%&@$?!/|<>0123456789"
-	local lockAt = { 0.5, 0.8, 1.1 }
-	tween(title, { TextTransparency = 0 }, 0.2)
-	local t0 = tick()
-	while go() and tick() - t0 < 1.4 do
-		local el = tick() - t0
-		local s = ""
+	tween(bg, {BackgroundTransparency=0}, 0.4);
+	tween(sig, {TextTransparency=0.2}, 0.8);
+	tween(hint, {TextTransparency=0.5}, 0.8);
+	task.wait(0.5);
+	local word = "GEF";
+	local chars = "#%&@$?!/|<>0123456789";
+	local lockAt = {0.5,0.8,1.1};
+	tween(title, {TextTransparency=0}, 0.2);
+	local t0 = tick();
+	while go() and ((tick() - t0) < 1.4) do
+		local el = tick() - t0;
+		local s = "";
 		for i = 1, #word do
-			if el >= lockAt[i] then
-				s = s .. string.sub(word, i, i)
+			if (el >= lockAt[i]) then
+				s = s .. string.sub(word, i, i);
 			else
-				local k = math.random(1, #chars)
-				s = s .. string.sub(chars, k, k)
+				local k = math.random(1, #chars);
+				s = s .. string.sub(chars, k, k);
 			end
 		end
-		title.Text, ghostR.Text, ghostC.Text = s, s, s
-		task.wait(0.04)
+		title.Text, ghostR.Text, ghostC.Text = s, s, s;
+		task.wait(0.04);
 	end
-	title.Text, ghostR.Text, ghostC.Text = word, word, word
-
-	-- glitch bursts and underline
+	title.Text, ghostR.Text, ghostC.Text = word, word, word;
 	if go() then
-		tween(line, { Size = UDim2.fromOffset(360, 2) }, 0.5)
-		glitch(0.25)
-		task.wait(0.15)
-		glitch(0.18)
+		tween(line, {Size=UDim2.fromOffset(360, 2)}, 0.5);
+		glitch(0.25);
+		task.wait(0.15);
+		glitch(0.18);
 	end
-
-	-- subtitle typewriter
-	local subText = "giant evil face // milk"
+	local subText = "giant evil face // milk";
 	if go() then
 		for i = 1, #subText do
-			if not go() then break end
-			sub.Text = string.sub(subText, 1, i)
-			task.wait(0.035)
+			if not go() then
+				break;
+			end
+			sub.Text = string.sub(subText, 1, i);
+			task.wait(0.035);
 		end
 	end
-	sub.Text = subText
-
-	-- loading stages tied to real work
-	local minEnd = t0 + 4.4
+	sub.Text = subText;
+	local minEnd = t0 + 4.4;
 	if go() then
-		tween(status, { TextTransparency = 0 }, 0.3)
-		tween(barBack, { BackgroundTransparency = 0 }, 0.3)
-		setProgress(0.25, "fetching the jingle...")
-		local w = tick()
-		while go() and not jingle.ready and tick() - w < 6 do task.wait(0.05) end
-		setProgress(0.6, "scanning the world...")
-		w = tick()
-		while go() and not scanned and tick() - w < 4 do task.wait(0.05) end
-		setProgress(0.9, "building the ui...")
-		task.wait(0.35)
-		setProgress(1, "ready")
-		while go() and tick() < minEnd do task.wait(0.03) end
-		task.wait(0.2)
+		tween(status, {TextTransparency=0}, 0.3);
+		tween(barBack, {BackgroundTransparency=0}, 0.3);
+		setProgress(0.25, "fetching the jingle...");
+		local w = tick();
+		while go() and not jingle.ready and ((tick() - w) < 6) do
+			task.wait(0.05);
+		end
+		setProgress(0.6, "scanning the world...");
+		w = tick();
+		while go() and not scanned and ((tick() - w) < 4) do
+			task.wait(0.05);
+		end
+		setProgress(0.9, "building the ui...");
+		task.wait(0.35);
+		setProgress(1, "ready");
+		while go() and (tick() < minEnd) do
+			task.wait(0.03);
+		end
+		task.wait(0.2);
 	end
-
-	running = false
-	if not alive then return end
-
-	-- flash out, open the window under it
-	local flash = create("Frame", {
-		Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.new(1, 1, 1), BackgroundTransparency = 1,
-		BorderSizePixel = 0, ZIndex = 60,
-	}, ig)
-	tween(flash, { BackgroundTransparency = 0 }, 0.12)
-	task.wait(0.14)
-	bg.Visible = false
-	skipBtn.Visible = false
-	pcall(onDone, skipped)
-	tween(flash, { BackgroundTransparency = 1 }, 0.55)
-	task.wait(0.6)
-	pcall(function() ig:Destroy() end)
-	introGui = nil
+	running = false;
+	if not alive then
+		return;
+	end
+	local flash = create("Frame", {Size=UDim2.fromScale(1, 1),BackgroundColor3=Color3.new(1, 1, 1),BackgroundTransparency=1,BorderSizePixel=0,ZIndex=60}, ig);
+	tween(flash, {BackgroundTransparency=0}, 0.12);
+	task.wait(0.14);
+	bg.Visible = false;
+	skipBtn.Visible = false;
+	pcall(onDone, skipped);
+	tween(flash, {BackgroundTransparency=1}, 0.55);
+	task.wait(0.6);
+	pcall(function()
+		ig:Destroy();
+	end);
+	introGui = nil;
 end
-
--- window controls -----------------------------------------------------------
-
-local minimized = false
+local minimized = false;
 track(btnMin.MouseButton1Click:Connect(function()
-	minimized = not minimized
-	rail.Visible = not minimized
-	body.Visible = not minimized
-	tween(main, { Size = UDim2.fromOffset(580, minimized and 42 or 390) }, 0.25)
-end))
-track(btnClose.MouseButton1Click:Connect(cleanup))
+	minimized = not minimized;
+	rail.Visible = not minimized;
+	body.Visible = not minimized;
+	tween(main, {Size=UDim2.fromOffset(580, (minimized and 42) or 390)}, 0.25);
+end));
+track(btnClose.MouseButton1Click:Connect(cleanup));
 track(btnHome.MouseButton1Click:Connect(function()
-	if goHome then safe(goHome) end
-end))
-track(UIS.InputBegan:Connect(function(i, gpe)
-	if gpe then return end
-	if i.KeyCode == Enum.KeyCode.RightShift then gui.Enabled = not gui.Enabled end
-end))
-
-switchTab("Items")
-task.spawn(fullScan)
-
-local opened = false
-local function openMain(skippedIntro)
-	if opened or not alive then return end
-	opened = true
-	main.Visible = true
-	TweenService:Create(main, TweenInfo.new(0.45, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Size = UDim2.fromOffset(580, 390) }):Play()
-	if not skippedIntro then task.spawn(playJingle) end
-end
-
-task.spawn(function()
-	local ok = pcall(runIntro, openMain)
-	if not ok then
-		if introGui then pcall(function() introGui:Destroy() end) introGui = nil end
-		openMain(true)
+	if goHome then
+		safe(goHome);
 	end
-end)
+end));
+track(UIS.InputBegan:Connect(function(i, gpe)
+	if gpe then
+		return;
+	end
+	if (i.KeyCode == Enum.KeyCode.RightShift) then
+		gui.Enabled = not gui.Enabled;
+	end
+end));
+switchTab("Items");
+task.spawn(fullScan);
+local opened = false;
+local function openMain(skippedIntro)
+	if (opened or not alive) then
+		return;
+	end
+	opened = true;
+	main.Visible = true;
+	TweenService:Create(main, TweenInfo.new(0.45, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Size=UDim2.fromOffset(580, 390)}):Play();
+	if not skippedIntro then
+		task.spawn(playJingle);
+	end
+end
+task.spawn(function()
+	local ok = pcall(runIntro, openMain);
+	if not ok then
+		if introGui then
+			pcall(function()
+				introGui:Destroy();
+			end);
+			introGui = nil;
+		end
+		openMain(true);
+	end
+end);
