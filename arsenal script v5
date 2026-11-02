@@ -1,4 +1,4 @@
--- milk arsenal v4
+-- milk arsenal v5
 -- asks which executor you use.
 --   compat = xeno / solara. plain roblox gui overlay, no hooks, no drawing library.
 --   full   = high unc executors. drawing library overlay, better arrows, silent aim hooks.
@@ -72,13 +72,24 @@ local cfg = {
 	AntiAFK = true,
 	LowPerf = false,
 	Intro = true,
+	Jingle = true,
 
 	EnemyColor = Color3.fromRGB(255, 70, 70),
 }
 
 local THEMES = {
+	aero = {
+		title = "milk  |  arsenal v5",
+		aero = true, glass = 0.06,
+		gradTop = Color3.fromRGB(255, 255, 255), gradBot = Color3.fromRGB(190, 222, 246),
+		bg = Color3.fromRGB(205, 234, 252), panel = Color3.fromRGB(150, 208, 244), item = Color3.fromRGB(238, 249, 255),
+		accent = Color3.fromRGB(14, 150, 224), text = Color3.fromRGB(12, 48, 84), sub = Color3.fromRGB(58, 104, 140),
+		off = Color3.fromRGB(160, 200, 224), stroke = Color3.fromRGB(255, 255, 255),
+		good = Color3.fromRGB(58, 178, 84), bad = Color3.fromRGB(226, 78, 66),
+		font = Enum.Font.Ubuntu, fontBold = Enum.Font.Ubuntu,
+	},
 	default = {
-		title = "milk  |  arsenal v4",
+		title = "milk  |  arsenal v5",
 		bg = Color3.fromRGB(20, 20, 24), panel = Color3.fromRGB(30, 30, 36), item = Color3.fromRGB(40, 40, 48),
 		accent = Color3.fromRGB(110, 150, 255), text = Color3.fromRGB(238, 238, 244), sub = Color3.fromRGB(150, 150, 165),
 		off = Color3.fromRGB(70, 70, 82), stroke = Color3.fromRGB(70, 70, 82),
@@ -86,7 +97,7 @@ local THEMES = {
 		font = Enum.Font.Gotham, fontBold = Enum.Font.GothamBold,
 	},
 	c00lgui = {
-		title = "c00lgui  |  arsenal v4",
+		title = "c00lgui  |  arsenal v5",
 		bg = Color3.fromRGB(8, 8, 8), panel = Color3.fromRGB(34, 0, 0), item = Color3.fromRGB(26, 10, 10),
 		accent = Color3.fromRGB(255, 24, 24), text = Color3.fromRGB(255, 232, 232), sub = Color3.fromRGB(205, 85, 85),
 		off = Color3.fromRGB(95, 18, 18), stroke = Color3.fromRGB(210, 0, 0),
@@ -94,7 +105,7 @@ local THEMES = {
 		font = Enum.Font.Code, fontBold = Enum.Font.Code,
 	},
 	milk = {
-		title = "milk  |  arsenal v4",
+		title = "milk  |  arsenal v5",
 		bg = Color3.fromRGB(251, 249, 244), panel = Color3.fromRGB(240, 236, 227), item = Color3.fromRGB(228, 223, 212),
 		accent = Color3.fromRGB(70, 115, 225), text = Color3.fromRGB(38, 36, 33), sub = Color3.fromRGB(112, 106, 98),
 		off = Color3.fromRGB(200, 194, 182), stroke = Color3.fromRGB(206, 199, 187),
@@ -102,7 +113,7 @@ local THEMES = {
 		font = Enum.Font.Gotham, fontBold = Enum.Font.GothamBold,
 	},
 	matrix = {
-		title = "matrix  |  arsenal v4",
+		title = "matrix  |  arsenal v5",
 		bg = Color3.fromRGB(0, 10, 0), panel = Color3.fromRGB(0, 26, 0), item = Color3.fromRGB(0, 38, 4),
 		accent = Color3.fromRGB(0, 255, 70), text = Color3.fromRGB(170, 255, 190), sub = Color3.fromRGB(60, 170, 90),
 		off = Color3.fromRGB(0, 72, 22), stroke = Color3.fromRGB(0, 160, 50),
@@ -110,7 +121,7 @@ local THEMES = {
 		font = Enum.Font.Code, fontBold = Enum.Font.Code,
 	},
 	sakura = {
-		title = "sakura  |  arsenal v4",
+		title = "sakura  |  arsenal v5",
 		bg = Color3.fromRGB(255, 240, 246), panel = Color3.fromRGB(252, 224, 236), item = Color3.fromRGB(247, 208, 224),
 		accent = Color3.fromRGB(230, 90, 150), text = Color3.fromRGB(80, 30, 55), sub = Color3.fromRGB(160, 90, 120),
 		off = Color3.fromRGB(240, 190, 210), stroke = Color3.fromRGB(235, 170, 200),
@@ -118,7 +129,7 @@ local THEMES = {
 		font = Enum.Font.Gotham, fontBold = Enum.Font.GothamBold,
 	},
 	midnight = {
-		title = "midnight  |  arsenal v4",
+		title = "midnight  |  arsenal v5",
 		bg = Color3.fromRGB(10, 12, 28), panel = Color3.fromRGB(18, 22, 48), item = Color3.fromRGB(26, 32, 68),
 		accent = Color3.fromRGB(120, 130, 255), text = Color3.fromRGB(230, 232, 255), sub = Color3.fromRGB(140, 148, 200),
 		off = Color3.fromRGB(50, 58, 110), stroke = Color3.fromRGB(60, 70, 140),
@@ -126,7 +137,7 @@ local THEMES = {
 		font = Enum.Font.Gotham, fontBold = Enum.Font.GothamBold,
 	},
 	sunset = {
-		title = "sunset  |  arsenal v4",
+		title = "sunset  |  arsenal v5",
 		bg = Color3.fromRGB(30, 14, 22), panel = Color3.fromRGB(48, 22, 32), item = Color3.fromRGB(66, 30, 40),
 		accent = Color3.fromRGB(255, 140, 70), text = Color3.fromRGB(255, 238, 225), sub = Color3.fromRGB(210, 150, 120),
 		off = Color3.fromRGB(110, 50, 50), stroke = Color3.fromRGB(150, 70, 60),
@@ -134,7 +145,7 @@ local THEMES = {
 		font = Enum.Font.Gotham, fontBold = Enum.Font.GothamBold,
 	},
 }
-local THEME_ORDER = { "default", "c00lgui", "milk", "matrix", "sakura", "midnight", "sunset" }
+local THEME_ORDER = { "aero", "default", "c00lgui", "milk", "matrix", "sakura", "midnight", "sunset" }
 
 local function readText(path)
 	if not hasFS then return nil end
@@ -151,7 +162,7 @@ local function writeText(path, text)
 	pcall(writefile, path, text)
 end
 
-local themeName = "default"
+local themeName = "aero"
 do
 	local saved = readText(ROOT .. "/theme.txt")
 	if saved and THEMES[saved] then themeName = saved end
@@ -159,10 +170,32 @@ end
 local theme = THEMES[themeName]
 local themed = {}
 local themeHooks = {}
+local gradients = {}
+local GRADIENT_KEYS = { bg = true, panel = true, item = true, accent = true, bad = true }
+
+-- aero gloss: a white to tinted vertical gradient multiplies the base color
+local function paintGradient(g)
+	if theme.aero then
+		g.Color = ColorSequence.new(theme.gradTop, theme.gradBot)
+		g.Enabled = true
+	else
+		g.Enabled = false
+	end
+end
+
+local function addGradient(inst)
+	local g = Instance.new("UIGradient")
+	g.Rotation = 90
+	g.Parent = inst
+	paintGradient(g)
+	table.insert(gradients, g)
+	return g
+end
 
 local function skin(inst, prop, key)
 	table.insert(themed, { inst, prop, key })
 	inst[prop] = theme[key]
+	if prop == "BackgroundColor3" and GRADIENT_KEYS[key] then addGradient(inst) end
 	return inst
 end
 
@@ -177,6 +210,10 @@ local function applyTheme(name)
 		else
 			table.remove(themed, i)
 		end
+	end
+	for i = #gradients, 1, -1 do
+		local g = gradients[i]
+		if g.Parent then paintGradient(g) else table.remove(gradients, i) end
 	end
 	for _, f in ipairs(themeHooks) do pcall(f) end
 	writeText(ROOT .. "/theme.txt", name)
@@ -237,6 +274,7 @@ gui.Name = "MilkArsenal"
 gui.ResetOnSpawn = false
 gui.IgnoreGuiInset = true
 gui.DisplayOrder = 999
+gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 gui.Parent = guiParent
 
 local overlay = Instance.new("Frame")
@@ -1207,9 +1245,13 @@ local function writeMode(m)
 	pcall(writefile, ROOT .. "/mode.txt", m)
 end
 
+local function hasDrawing()
+	local ok, new = pcall(function() return Drawing.new end)
+	return ok and type(new) == "function"
+end
+
 local function setMode(newMode)
-	if newMode == "full" and not (type(Drawing) == "table" or type(Drawing) == "userdata")
-		or (newMode == "full" and not Drawing.new) then
+	if newMode == "full" and not hasDrawing() then
 		newMode = "compat"
 		setStatus("no drawing library here. using compat mode.", theme.bad)
 	end
@@ -1236,27 +1278,92 @@ end
 ------------------------------------------------------------------------
 -- intro. click or press any key to skip
 ------------------------------------------------------------------------
+local introRunning = false
+
+-- intro jingle. downloaded once into the MilkArsenal folder, then played from disk
+local SoundService = cr(game:GetService("SoundService"))
+local JINGLE_URL = "https://github.com/svevvenonetwoo72/something/raw/refs/heads/main/weird-route-jingle.mp3"
+local JINGLE_FILE = ROOT .. "/weird-route-jingle.mp3"
+local jingleAsset, jingleSound
+
+local function prepareJingle()
+	if jingleAsset then return jingleAsset end
+	if not (hasFS and type(getcustomasset) == "function") then return nil end
+	pcall(function()
+		if not isfile(JINGLE_FILE) then
+			local data
+			if type(request) == "function" then
+				local res = request({ Url = JINGLE_URL, Method = "GET" })
+				if res and res.Success and type(res.Body) == "string" then data = res.Body end
+			end
+			if not data then data = game:HttpGet(JINGLE_URL) end
+			if type(data) == "string" and #data > 1024 and data:sub(1, 1) ~= "<" then
+				pcall(makefolder, ROOT)
+				writefile(JINGLE_FILE, data)
+			end
+		end
+		if isfile(JINGLE_FILE) then jingleAsset = getcustomasset(JINGLE_FILE) end
+	end)
+	return jingleAsset
+end
+
+local function playJingle()
+	if not cfg.Jingle then return end
+	task.spawn(function()
+		local asset = prepareJingle()
+		if not asset then return end
+		pcall(function()
+			if jingleSound then jingleSound:Destroy() end
+			local snd = Instance.new("Sound")
+			snd.Name = "MilkJingle"
+			snd.SoundId = asset
+			snd.Volume = 0.6
+			snd.Parent = SoundService
+			jingleSound = snd
+			snd.Ended:Connect(function() pcall(function() snd:Destroy() end) end)
+			snd:Play()
+		end)
+	end)
+end
+
 local function playIntro(onDone)
+	if introRunning then return end
+	introRunning = true
 	task.spawn(function()
 		local skip = false
 		local conn, rootRef
+		local aero = theme.aero == true
+		if cfg.Jingle then task.spawn(prepareJingle) end
 
-		pcall(function()
+		local ok, err = pcall(function()
 			local detected = "unknown"
 			pcall(function()
 				if identifyexecutor then detected = tostring((identifyexecutor())) end
 			end)
 
-			local root = Instance.new("CanvasGroup")
+			-- plain Frame on purpose. CanvasGroup renders as a blank gray sheet on several executors.
+			local root = Instance.new("Frame")
 			root.Name = "Intro"
 			root.Size = UDim2.fromScale(1, 1)
-			root.BackgroundColor3 = theme.bg
+			root.BackgroundColor3 = aero and Color3.new(1, 1, 1) or theme.bg
+			root.BackgroundTransparency = 1
 			root.BorderSizePixel = 0
-			root.GroupTransparency = 1
 			root.Active = true
+			root.ClipsDescendants = true
 			root.ZIndex = 100
 			root.Parent = gui
 			rootRef = root
+
+			if aero then
+				local g = Instance.new("UIGradient")
+				g.Rotation = 90
+				g.Color = ColorSequence.new({
+					ColorSequenceKeypoint.new(0, Color3.fromRGB(88, 184, 246)),
+					ColorSequenceKeypoint.new(0.55, Color3.fromRGB(186, 230, 252)),
+					ColorSequenceKeypoint.new(1, Color3.fromRGB(172, 236, 188)),
+				})
+				g.Parent = root
+			end
 
 			conn = UserInputService.InputBegan:Connect(function(input)
 				local t = input.UserInputType
@@ -1271,6 +1378,11 @@ local function playIntro(onDone)
 				for k, v in pairs(props) do o[k] = v end
 				o.Parent = root
 				return o
+			end
+			local function round(inst, r)
+				local c = Instance.new("UICorner")
+				c.CornerRadius = UDim.new(0, r)
+				c.Parent = inst
 			end
 			local function pause(t)
 				local t0 = os.clock()
@@ -1300,13 +1412,59 @@ local function playIntro(onDone)
 			bracket(0, 1)
 			bracket(1, 1)
 
-			-- scanline that sweeps down the screen
+			-- frutiger aero: soft sun glare and rising bubbles
+			if aero then
+				local glare = mk("Frame", {
+					AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, -0.05),
+					Size = UDim2.fromOffset(w * 0.9, w * 0.9), BackgroundColor3 = Color3.new(1, 1, 1),
+					BackgroundTransparency = 0.82, BorderSizePixel = 0,
+				})
+				round(glare, 9999)
+			end
+
+			local function bubble(delay)
+				task.delay(delay, function()
+					if skip or not root.Parent then return end
+					local size = math.random(16, 72)
+					local x = math.random(5, 95) / 100
+					local b = mk("Frame", {
+						AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(x, 0, 1, size),
+						Size = UDim2.fromOffset(size, size), BackgroundColor3 = Color3.new(1, 1, 1),
+						BackgroundTransparency = 0.8, BorderSizePixel = 0,
+					})
+					round(b, 9999)
+					local s = Instance.new("UIStroke")
+					s.Color = Color3.new(1, 1, 1)
+					s.Transparency = 0.35
+					s.Thickness = 1.5
+					s.Parent = b
+					local hi = Instance.new("Frame")
+					hi.Size = UDim2.fromScale(0.3, 0.3)
+					hi.Position = UDim2.fromScale(0.2, 0.15)
+					hi.BackgroundColor3 = Color3.new(1, 1, 1)
+					hi.BackgroundTransparency = 0.35
+					hi.BorderSizePixel = 0
+					hi.Parent = b
+					round(hi, 9999)
+					local tw = TweenService:Create(b, TweenInfo.new(math.random(30, 50) / 10, Enum.EasingStyle.Sine), {
+						Position = UDim2.new(x, math.random(-30, 30), -0.15, 0),
+					})
+					tw.Completed:Connect(function() pcall(function() b:Destroy() end) end)
+					tw:Play()
+				end)
+			end
+			if aero then
+				for _ = 1, 16 do bubble(math.random(0, 28) / 10) end
+			end
+
+			-- scanline / light sweep
 			local function sweep(delay)
 				task.delay(delay, function()
 					if skip or not root.Parent then return end
 					local line = mk("Frame", {
-						Size = UDim2.new(1, 0, 0, 2), Position = UDim2.new(0, 0, 0, -4),
-						BackgroundColor3 = theme.accent, BackgroundTransparency = 0.55, BorderSizePixel = 0,
+						Size = UDim2.new(1, 0, 0, aero and 3 or 2), Position = UDim2.new(0, 0, 0, -4),
+						BackgroundColor3 = aero and Color3.new(1, 1, 1) or theme.accent,
+						BackgroundTransparency = aero and 0.5 or 0.55, BorderSizePixel = 0,
 					})
 					local tw = TweenService:Create(line, TweenInfo.new(1.1, Enum.EasingStyle.Linear), {
 						Position = UDim2.new(0, 0, 1, 4),
@@ -1324,19 +1482,24 @@ local function playIntro(onDone)
 					TextTransparency = transparency, Text = "", ZIndex = z,
 				})
 			end
-			local titleR = titleLabel(theme.bad, 1, 0.35)
-			local titleC = titleLabel(theme.accent, 2, 0.35)
+			local titleR = titleLabel(theme.bad, 1, aero and 1 or 0.35)
+			local titleC = titleLabel(theme.accent, 2, aero and 1 or 0.35)
 			local title = titleLabel(theme.text, 3, 0)
+			if aero then
+				title.TextStrokeColor3 = Color3.new(1, 1, 1)
+				title.TextStrokeTransparency = 0.35
+			end
 
 			local underline = mk("Frame", {
 				AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0.5, 0, 0.5, 6),
 				Size = UDim2.fromOffset(0, 2), BackgroundColor3 = theme.accent, BorderSizePixel = 0, ZIndex = 3,
 			})
+			round(underline, 1)
 			local sub = mk("TextLabel", {
 				Size = UDim2.new(1, 0, 0, 18), AnchorPoint = Vector2.new(0.5, 0.5),
 				Position = UDim2.new(0.5, 0, 0.5, 26), BackgroundTransparency = 1,
 				Font = theme.font, TextSize = 13, TextColor3 = theme.sub, TextTransparency = 1,
-				Text = "arsenal v4  |  " .. detected, ZIndex = 3,
+				Text = "arsenal v5  |  " .. detected, ZIndex = 3,
 			})
 
 			local boot = mk("TextLabel", {
@@ -1346,18 +1509,28 @@ local function playIntro(onDone)
 			})
 
 			local barW = math.min(300, w * 0.7)
+			local barH = aero and 10 or 4
 			local barBg = mk("Frame", {
 				AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0.5, 0, 0.78, 0),
-				Size = UDim2.fromOffset(barW, 4), BackgroundColor3 = theme.off, BorderSizePixel = 0,
+				Size = UDim2.fromOffset(barW, barH), BackgroundColor3 = aero and Color3.new(1, 1, 1) or theme.off,
+				BackgroundTransparency = aero and 0.35 or 0, BorderSizePixel = 0,
 			})
+			round(barBg, barH)
+			if aero then
+				local bs = Instance.new("UIStroke")
+				bs.Color = Color3.new(1, 1, 1)
+				bs.Transparency = 0.2
+				bs.Parent = barBg
+			end
 			local fill = Instance.new("Frame")
 			fill.Size = UDim2.new(0, 0, 1, 0)
-			fill.BackgroundColor3 = theme.accent
+			fill.BackgroundColor3 = aero and Color3.fromRGB(70, 200, 110) or theme.accent
 			fill.BorderSizePixel = 0
 			fill.Parent = barBg
+			round(fill, barH)
 			local pct = mk("TextLabel", {
 				Size = UDim2.fromOffset(80, 16), AnchorPoint = Vector2.new(0.5, 0.5),
-				Position = UDim2.new(0.5, 0, 0.78, 16), BackgroundTransparency = 1,
+				Position = UDim2.new(0.5, 0, 0.78, 22), BackgroundTransparency = 1,
 				Font = Enum.Font.Code, TextSize = 11, TextColor3 = theme.sub, Text = "0%",
 			})
 
@@ -1371,18 +1544,34 @@ local function playIntro(onDone)
 				title.Text, titleC.Text, titleR.Text = text, text, text
 			end
 
+			local function fadeOut(t)
+				local info = TweenInfo.new(t)
+				for _, d in ipairs(root:GetDescendants()) do
+					local props
+					if d:IsA("TextLabel") then
+						props = { TextTransparency = 1, TextStrokeTransparency = 1 }
+					elseif d:IsA("Frame") then
+						props = { BackgroundTransparency = 1 }
+					elseif d:IsA("UIStroke") then
+						props = { Transparency = 1 }
+					end
+					if props then pcall(function() TweenService:Create(d, info, props):Play() end) end
+				end
+				TweenService:Create(root, info, { BackgroundTransparency = 1 }):Play()
+			end
+
 			-- play
-			TweenService:Create(root, TweenInfo.new(0.35), { GroupTransparency = 0 }):Play()
+			TweenService:Create(root, TweenInfo.new(0.3), { BackgroundTransparency = 0 }):Play()
 			sweep(0.15)
 			sweep(1.0)
 			sweep(1.9)
-			pause(0.4)
+			pause(0.35)
 
 			typeInto(full, 0.045)
 
-			-- glitch burst, then settle with a slight color split
+			-- glitch burst (non-aero), then settle
 			for k = 1, 9 do
-				if skip then break end
+				if skip or aero then break end
 				local j = (k % 2 == 0) and 1 or -1
 				titleR.Position = UDim2.new(0.5, -4 * j - math.random(0, 3), 0.5, -26 + math.random(-2, 2))
 				titleC.Position = UDim2.new(0.5, 4 * j + math.random(0, 3), 0.5, -26 + math.random(-2, 2))
@@ -1399,7 +1588,7 @@ local function playIntro(onDone)
 			TweenService:Create(sub, TweenInfo.new(0.4), { TextTransparency = 0 }):Play()
 			pause(0.3)
 
-			-- fake boot log and loading bar
+			-- boot log and loading bar
 			local lines = {
 				{ 0.0, "> executor: " .. detected },
 				{ 0.3, "> theme: " .. themeName },
@@ -1429,6 +1618,7 @@ local function playIntro(onDone)
 			end
 			fill.Size = UDim2.new(1, 0, 1, 0)
 			pct.Text = "100%"
+			playJingle()
 			shownLines = {}
 			for i = math.max(1, #lines - 5), #lines do table.insert(shownLines, lines[i][2]) end
 			boot.Text = table.concat(shownLines, "\n")
@@ -1436,13 +1626,14 @@ local function playIntro(onDone)
 			sub.Text = "welcome, " .. LocalPlayer.DisplayName
 			pause(0.4)
 
-			local tw = TweenService:Create(root, TweenInfo.new(0.45), { GroupTransparency = 1 })
-			tw:Play()
+			fadeOut(0.45)
 			task.wait(0.5)
 		end)
 
+		if not ok then warn("[milk] intro failed: " .. tostring(err)) end
 		if conn then pcall(function() conn:Disconnect() end) end
 		if rootRef then pcall(function() rootRef:Destroy() end) end
+		introRunning = false
 		if onDone then onDone() end
 	end)
 end
@@ -1478,6 +1669,27 @@ header.BorderSizePixel = 0
 header.Active = true
 header.Parent = main
 skin(header, "BackgroundColor3", "panel")
+
+-- aero: glossy highlight over the top half of the header, glass body, white rim
+local shine = Instance.new("Frame")
+shine.Size = UDim2.new(1, -8, 0.5, -2)
+shine.Position = UDim2.fromOffset(4, 2)
+shine.BackgroundColor3 = Color3.new(1, 1, 1)
+shine.BackgroundTransparency = 0.7
+shine.BorderSizePixel = 0
+shine.Visible = false
+shine.Parent = header
+corner(shine, 6)
+
+local function paintAero()
+	local a = theme.aero == true
+	main.BackgroundTransparency = a and (theme.glass or 0.06) or 0
+	header.BackgroundTransparency = a and 0.04 or 0
+	mainStroke.Thickness = a and 2 or 1
+	shine.Visible = a
+end
+table.insert(themeHooks, paintAero)
+paintAero()
 
 local title = Instance.new("TextLabel")
 title.Size = UDim2.new(1, -96, 1, 0)
@@ -1565,6 +1777,7 @@ local function makePage(name)
 	btn.Parent = tabBar
 	skin(btn, "Font", "fontBold")
 	corner(btn, 6)
+	addGradient(btn)
 
 	local sf = Instance.new("ScrollingFrame")
 	sf.Size = UDim2.new(1, -20, 1, -72)
@@ -1912,6 +2125,7 @@ info(settingsP, "slower name updates, no skeleton past 150 studs, silent aim tar
 
 section(settingsP, "startup")
 toggle(settingsP, "play intro on start", "Intro")
+toggle(settingsP, "play jingle after loading", "Jingle")
 button(settingsP, "replay intro", nil, function() playIntro() end)
 info(settingsP, "click or press any key to skip the intro.", 20)
 
@@ -2014,6 +2228,7 @@ cleanup = function()
 	if fovCircle then fovCircle.destroy() end
 	if silentCircle then silentCircle.destroy() end
 	pcall(setFullbright, false)
+	pcall(function() if jingleSound then jingleSound:Destroy() end end)
 	pcall(function()
 		local cam = Workspace.CurrentCamera
 		if cam then cam.FieldOfView = origFOV end
@@ -2078,6 +2293,7 @@ local function askExecutor()
 	prompt.Active = true
 	prompt.ZIndex = 50
 	prompt.Parent = gui
+	skin(prompt, "BackgroundColor3", "bg")
 	corner(prompt, 12)
 	local ps = Instance.new("UIStroke")
 	ps.Color = theme.off
@@ -2094,15 +2310,15 @@ local function askExecutor()
 		local b = Instance.new("TextButton")
 		b.Size = UDim2.new(1, -24, 0, 56)
 		b.Position = UDim2.fromOffset(12, y)
-		b.BackgroundColor3 = isSuggested and theme.accent or theme.item
 		b.BorderSizePixel = 0
 		b.AutoButtonColor = true
 		b.Text = ""
 		b.ZIndex = 51
 		b.Parent = prompt
+		skin(b, "BackgroundColor3", isSuggested and "accent" or "item")
 		corner(b, 8)
 		local a = label(b, text, UDim2.new(1, -20, 0, 22), UDim2.fromOffset(10, 6), Enum.Font.GothamBold, 14,
-			Color3.new(1, 1, 1), Enum.TextXAlignment.Left)
+			isSuggested and Color3.new(1, 1, 1) or theme.text, Enum.TextXAlignment.Left)
 		a.ZIndex = 52
 		local c = label(b, sub, UDim2.new(1, -20, 0, 18), UDim2.fromOffset(10, 30), Enum.Font.Gotham, 11,
 			isSuggested and Color3.new(1, 1, 1) or theme.sub, Enum.TextXAlignment.Left)
